@@ -4,6 +4,7 @@ import HarborCore
 import HarborLogging
 @testable import HarborSessions
 import HarborShell
+import HarborSSH
 import Testing
 
 /// A complete, isolated Harbor environment around a real zsh — no UI, no dotfiles.
@@ -159,6 +160,22 @@ struct SessionControlTests {
             _ = try await harness.control.openSession(.destination("-oProxyCommand=touch /tmp/pwned"), client: assistant)
         }
         #expect(harness.manager.sessions.isEmpty)
+    }
+
+    @Test func restoresUnsavedDestinationsAndSavedHosts() throws {
+        let harness = try Harness()
+        let saved = HostProfile(name: "saved", hostname: "saved.example.com")
+        harness.hosts.upsert(saved)
+        let adHoc = HostProfile(name: "x", hostname: "adhoc.example.com", user: "deploy", port: 2222)
+        let restorer = SessionRestorer(paths: harness.paths)
+        // Sessions are built without launching ssh; only their kinds matter here.
+        let sessions = [TerminalSession(kind: .ssh(saved), configuration: nil),
+                        TerminalSession(kind: .ssh(adHoc), configuration: nil)]
+        restorer.save(windows: [sessions]) { harness.hosts.host(id: $0) != nil }
+
+        let snapshots = restorer.load()
+        #expect(snapshots.map(\.kind) == [.host(saved.id), .destination(adHoc)])
+        #expect(snapshots.allSatisfy { $0.windowIndex == 0 })
     }
 
     @Test func extractorReturnsOnlyCommandOutput() {

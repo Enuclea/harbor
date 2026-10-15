@@ -71,7 +71,7 @@ let package = Package(
         .testTarget(name: "HarborSSHTests", dependencies: ["HarborSSH"]),
         .testTarget(name: "HarborFilesTests", dependencies: ["HarborFiles", "HarborSSH"]),
         .testTarget(name: "HarborControlTests", dependencies: ["HarborControl"]),
-        .testTarget(name: "HarborSessionsTests", dependencies: ["HarborSessions", "HarborShell", "HarborControl"]),
+        .testTarget(name: "HarborSessionsTests", dependencies: ["HarborSessions", "HarborShell", "HarborControl", "HarborSSH"]),
         .testTarget(name: "HarborMCPTests", dependencies: ["HarborMCP", "HarborMCPBridge"]),
         .testTarget(name: "HarborRemoteTests", dependencies: ["HarborRemote"]),
         .testTarget(name: "HarborDoctorTests", dependencies: ["HarborDoctor"]),

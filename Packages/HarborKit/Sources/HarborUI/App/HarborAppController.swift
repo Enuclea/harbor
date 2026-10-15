@@ -80,7 +80,8 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
 
     func willTerminate() {
         if services.settings.settings.terminal.restoreSessionsOnLaunch {
-            SessionRestorer(paths: services.paths).save(windows: windows.controllersInOrder.map(\.sessions))
+            let hosts = services.hosts
+            SessionRestorer(paths: services.paths).save(windows: windows.controllersInOrder.map(\.sessions)) { hosts.host(id: $0) != nil }
         } else {
             SessionRestorer(paths: services.paths).clear()
         }
@@ -240,7 +241,11 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
                 session = services.sessions.open(.localShell, workingDirectory: snapshot.workingDirectory, placement: placement)
             case .host(let id):
                 session = services.hosts.host(id: id).map { services.sessions.open(.ssh($0), placement: placement) }
+            case .destination(let host):
+                session = HostProfileValidator.problems(in: host).isEmpty
+                    ? services.sessions.open(.ssh(host), placement: placement) : nil
             }
+            if session == nil { log.warning("couldn't restore a tab: \(snapshot.kind)") }
             session?.customTitle = snapshot.customTitle
             if session != nil { opened += 1 }
         }

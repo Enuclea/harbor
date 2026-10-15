@@ -5,7 +5,10 @@ import HarborCore
 public struct SessionSnapshot: Codable, Sendable, Equatable {
     public enum Kind: Codable, Sendable, Equatable {
         case local
+        /// A host from the user's library.
         case host(HostID)
+        /// A destination typed into Quick Connect (or opened by an assistant) that isn't saved.
+        case destination(HostProfile)
     }
 
     public var kind: Kind
@@ -31,8 +34,8 @@ public struct SessionStateDocument: Codable, Sendable {
     }
 }
 
-/// Saves and restores open tabs. Ad-hoc SSH destinations and one-off commands are not
-/// restored — only local shells (in their last directory) and saved hosts.
+/// Saves and restores open tabs: local shells (in their last directory), saved hosts, and
+/// unsaved SSH destinations. One-off commands (installers, ssh-copy-id) are not restored.
 @MainActor
 public struct SessionRestorer {
     private let store: JSONFileStore<SessionStateDocument>
@@ -41,8 +44,9 @@ public struct SessionRestorer {
         store = JSONFileStore(url: paths.sessionStateFile) { SessionStateDocument() }
     }
 
-    /// Saves tabs grouped by window, front window first.
-    public func save(windows: [[TerminalSession]]) {
+    /// Saves tabs grouped by window, front window first. `isSaved` says whether a host is in
+    /// the library (saved hosts are stored by id so later edits apply on restore).
+    public func save(windows: [[TerminalSession]], isSaved: (HostID) -> Bool) {
         var snapshots: [SessionSnapshot] = []
         for (index, sessions) in windows.enumerated() {
             for session in sessions {
@@ -51,7 +55,8 @@ public struct SessionRestorer {
                     snapshots.append(SessionSnapshot(kind: .local, workingDirectory: session.workingDirectory,
                                                      customTitle: session.customTitle, windowIndex: index))
                 case .ssh(let host):
-                    snapshots.append(SessionSnapshot(kind: .host(host.id), workingDirectory: nil,
+                    let kind: SessionSnapshot.Kind = isSaved(host.id) ? .host(host.id) : .destination(host)
+                    snapshots.append(SessionSnapshot(kind: kind, workingDirectory: nil,
                                                      customTitle: session.customTitle, windowIndex: index))
                 case .command:
                     continue
