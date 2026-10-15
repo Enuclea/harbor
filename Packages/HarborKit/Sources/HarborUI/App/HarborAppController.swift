@@ -79,12 +79,16 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     }
 
     func willTerminate() {
-        if services.settings.settings.terminal.restoreSessionsOnLaunch {
+        windows.isTerminating = true
+        let restorer = SessionRestorer(paths: services.paths)
+        if !services.settings.settings.terminal.restoreSessionsOnLaunch {
+            restorer.clear()
+        } else if windows.hasWindows {
             let hosts = services.hosts
-            SessionRestorer(paths: services.paths).save(windows: windows.controllersInOrder.map(\.sessions)) { hosts.host(id: $0) != nil }
-        } else {
-            SessionRestorer(paths: services.paths).clear()
+            restorer.save(windows.controllersInOrder.map(\.restorableState)) { hosts.host(id: $0) != nil }
         }
+        // With no windows open, the file already holds the last window closed (or nothing,
+        // if its tabs were closed one by one).
         services.sessions.sessions.forEach { $0.terminate() }
         services.settings.flush()
         services.mcp.stop()
@@ -97,8 +101,11 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
         log.notice("\(AppIdentity.name) quit")
     }
 
+    /// The Dock icon was clicked with no windows open: bring back the last window closed (or
+    /// the windows from the last quit), else open a fresh one.
     func reopen() {
-        if !windows.hasWindows { openLocalTab(in: nil, placement: .newWindow) }
+        guard !windows.hasWindows else { return }
+        if !restoreSavedWindows() { openLocalTab(in: nil, placement: .newWindow) }
     }
 
     /// `ssh://` links, `harbor://` links and folders dropped on the Dock icon.
@@ -228,13 +235,26 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     }
 
     private func restoreOrOpenFirstTab() {
-        let snapshots = services.settings.settings.terminal.restoreSessionsOnLaunch ? SessionRestorer(paths: services.paths).load() : []
+        if !restoreSavedWindows() { openLocalTab(in: nil, placement: .newWindow) }
+    }
+
+    /// Reopens the saved windows, each at its old frame with its old front tab, front window
+    /// last so it ends up on top. Returns whether anything opened.
+    @discardableResult
+    private func restoreSavedWindows() -> Bool {
+        guard services.settings.settings.terminal.restoreSessionsOnLaunch else { return false }
+        let document = SessionRestorer(paths: services.paths).load()
         var opened = 0
         var currentWindow: Int?
-        for snapshot in snapshots {
+        var windowTabs: [(snapshot: WindowSnapshot?, sessions: [TerminalSession])] = []
+        for snapshot in document.sessions {
             let startsWindow = opened == 0 || snapshot.windowIndex != currentWindow
             currentWindow = snapshot.windowIndex
             let placement: SessionPlacement = startsWindow ? .newWindow : .newTab
+            if startsWindow {
+                windows.pendingFrame = document.window(snapshot.windowIndex)?.frame
+                windowTabs.append((document.window(snapshot.windowIndex), []))
+            }
             let session: TerminalSession?
             switch snapshot.kind {
             case .local:
@@ -247,9 +267,20 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
             }
             if session == nil { log.warning("couldn't restore a tab: \(snapshot.kind)") }
             session?.customTitle = snapshot.customTitle
-            if session != nil { opened += 1 }
+            if let session {
+                opened += 1
+                windowTabs[windowTabs.count - 1].sessions.append(session)
+            }
         }
-        if opened == 0 { openLocalTab(in: nil, placement: .newWindow) }
+        windows.pendingFrame = nil
+        for (snapshot, sessions) in windowTabs {
+            guard let index = snapshot?.selectedTab, sessions.indices.contains(index),
+                  let controller = windows.controller(for: sessions[index]) else { continue }
+            controller.select(sessions[index])
+        }
+        windowTabs.reversed().compactMap { $0.sessions.first.flatMap(windows.controller(for:)) }
+            .forEach { $0.window?.makeKeyAndOrderFront(nil) }
+        return opened > 0
     }
 
     // MARK: AppActions

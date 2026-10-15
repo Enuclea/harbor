@@ -172,11 +172,22 @@ struct SessionControlTests {
         // Sessions are built without launching ssh; only their kinds matter here.
         let sessions = [TerminalSession(kind: .ssh(saved), configuration: nil),
                         TerminalSession(kind: .ssh(adHoc), configuration: nil)]
-        restorer.save(windows: [sessions]) { harness.hosts.host(id: $0) != nil }
+        let frame = CGRect(x: 120, y: 80, width: 1400, height: 900)
+        restorer.save([RestorableWindow(sessions: sessions, frame: frame, selectedTab: 1)]) { harness.hosts.host(id: $0) != nil }
 
-        let snapshots = restorer.load()
-        #expect(snapshots.map(\.kind) == [.host(saved.id), .destination(adHoc)])
-        #expect(snapshots.allSatisfy { $0.windowIndex == 0 })
+        let document = restorer.load()
+        #expect(document.sessions.map(\.kind) == [.host(saved.id), .destination(adHoc)])
+        #expect(document.sessions.allSatisfy { $0.windowIndex == 0 })
+        #expect(document.window(0) == WindowSnapshot(index: 0, frame: frame, selectedTab: 1), "the window comes back where it was")
+    }
+
+    @Test func readsStateSavedBeforeWindowFramesExisted() throws {
+        let harness = try Harness()
+        try #"{ "version": 1, "sessions": [ { "kind": { "local": {} }, "windowIndex": 0 } ] }"#
+            .write(to: harness.paths.sessionStateFile, atomically: true, encoding: .utf8)
+        let document = SessionRestorer(paths: harness.paths).load()
+        #expect(document.sessions.map(\.kind) == [.local])
+        #expect(document.windows.isEmpty)
     }
 
     @Test func extractorReturnsOnlyCommandOutput() {

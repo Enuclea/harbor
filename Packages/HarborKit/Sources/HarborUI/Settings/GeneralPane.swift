@@ -48,7 +48,8 @@ struct GeneralPane: View {
                     ForEach(ExitBehavior.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Toggle("Ask before closing a tab that's running something", isOn: $store.settings.terminal.confirmCloseWithRunningProcess)
-                Toggle("Reopen tabs when Harbor starts", isOn: $store.settings.terminal.restoreSessionsOnLaunch)
+                Toggle("Reopen windows and tabs as you left them", isOn: $store.settings.terminal.restoreSessionsOnLaunch)
+                Footnote("Windows come back at their size and position when Harbor starts. Closing the last window keeps it too: click the Dock icon to bring it back.")
             }
 
             Section("Keyboard and mouse") {

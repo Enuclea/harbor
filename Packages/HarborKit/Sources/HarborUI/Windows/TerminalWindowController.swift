@@ -221,7 +221,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
                 self.coordinator?.moveSession(id, to: self, before: target)
             },
             installIntegration: { [weak self] id in self?.session(id).map { self?.installIntegration(for: $0) } },
-            editHost: { [weak self] id in self?.session(id).map { self?.presentHostEditor(for: $0) } })
+            editHost: { [weak self] id in self?.session(id).map { self?.presentHostEditor(for: $0) } },
+            connect: { [weak self] host in self?.services.actions?.connect(to: host) },
+            quickConnect: { [weak self] in self?.services.actions?.showQuickConnect() },
+            manageHosts: { [weak self] in self?.services.actions?.openSettings(section: .hosts) })
     }
 
     /// The tab's name as shown on the strip (using the saved host's current details).
@@ -324,11 +327,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
     }
 
     func windowWillClose(_ notification: Notification) {
-        let closing = model.sessions
+        let closing = restorableState
         containers.values.forEach { $0.teardown() }
         containers.removeAll()
         model.sessions.removeAll()
-        coordinator?.windowWillClose(self, sessions: closing)
+        coordinator?.windowWillClose(self, state: closing)
+    }
+
+    /// The window's tabs, frame and front tab, for saving.
+    var restorableState: RestorableWindow {
+        RestorableWindow(sessions: model.sessions, frame: window?.frame,
+                         selectedTab: model.sessions.firstIndex { $0.id == model.selectedID })
     }
 
     // MARK: Menu actions (responder chain)

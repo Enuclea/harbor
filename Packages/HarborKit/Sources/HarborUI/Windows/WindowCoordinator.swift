@@ -15,6 +15,10 @@ final class WindowCoordinator: NSObject, SessionPresenting {
     }
 
     var hasWindows: Bool { !controllers.isEmpty }
+    /// Set while quitting, so windows closing on the way out aren't saved over the quit state.
+    var isTerminating = false
+    /// The frame for the next new window (a restored window's saved frame).
+    var pendingFrame: CGRect?
     var windowCount: Int { controllers.count }
 
     /// Windows front to back.
@@ -38,7 +42,12 @@ final class WindowCoordinator: NSObject, SessionPresenting {
         let reference = keyController
         let controller = makeController()
         controller.adopt(session)
-        position(controller, relativeTo: reference)
+        if let frame = pendingFrame.flatMap(Self.visibleFrame) {
+            controller.window?.setFrame(frame, display: false)
+        } else {
+            position(controller, relativeTo: reference)
+        }
+        pendingFrame = nil
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
@@ -146,10 +155,25 @@ final class WindowCoordinator: NSObject, SessionPresenting {
         services.sessions.windowDidClose(for: session)
     }
 
-    func windowWillClose(_ controller: TerminalWindowController, sessions: [TerminalSession]) {
+    func windowWillClose(_ controller: TerminalWindowController, state: RestorableWindow) {
         controllers.removeAll { $0 === controller }
         if activeController === controller { activeController = controllers.last }
-        sessions.forEach { services.sessions.windowDidClose(for: $0) }
+        // Closing the last window is how many people leave Harbor without quitting, so it's
+        // remembered like a quit: the Dock icon or the next launch brings it back. (Closing
+        // its last tab instead leaves nothing to remember.)
+        if controllers.isEmpty, !isTerminating, services.settings.settings.terminal.restoreSessionsOnLaunch {
+            let hosts = services.hosts
+            SessionRestorer(paths: services.paths).save([state]) { hosts.host(id: $0) != nil }
+        }
+        state.sessions.forEach { services.sessions.windowDidClose(for: $0) }
+    }
+
+    /// `frame`, if enough of it is on a connected screen to use (displays change between launches).
+    static func visibleFrame(_ frame: CGRect) -> CGRect? {
+        guard frame.width >= 200, frame.height >= 120,
+              NSScreen.screens.contains(where: { $0.visibleFrame.intersection(frame).width >= 100 && $0.visibleFrame.intersection(frame).height >= 60 })
+        else { return nil }
+        return frame
     }
 
     func applyAppearance() {

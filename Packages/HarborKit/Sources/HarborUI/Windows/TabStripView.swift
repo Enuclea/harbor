@@ -17,6 +17,13 @@ final class WindowTabsModel {
     var leadingInset: CGFloat = 80
     var isDark = true
 
+    /// Saved hosts for the new-tab menu: favourites first, then by name.
+    var savedHosts: [HostProfile] {
+        (hosts?.hosts ?? []).sorted {
+            $0.isFavorite != $1.isFavorite ? $0.isFavorite : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
     var items: [TabItemState] {
         sessions.map { session in
             let saved = session.kind.host.flatMap { hosts?.host(id: $0.id) }
@@ -40,6 +47,10 @@ struct TabStripActions: Sendable {
     var installIntegration: @MainActor @Sendable (SessionID) -> Void = { _ in }
     /// Opens the host editor: “Save as Host…” for unsaved destinations, “Edit Host…” otherwise.
     var editHost: @MainActor @Sendable (SessionID) -> Void = { _ in }
+    /// New-tab menu: connect to a saved host, Quick Connect, or the Hosts settings.
+    var connect: @MainActor @Sendable (HostProfile) -> Void = { _ in }
+    var quickConnect: @MainActor @Sendable () -> Void = {}
+    var manageHosts: @MainActor @Sendable () -> Void = {}
 }
 
 /// Live binding of the strip to a window's model.
@@ -48,7 +59,7 @@ struct TabStripView: View {
     let actions: TabStripActions
 
     var body: some View {
-        TabStripContent(items: model.items, leadingInset: model.leadingInset, actions: actions)
+        TabStripContent(items: model.items, hosts: model.savedHosts, leadingInset: model.leadingInset, actions: actions)
             .environment(\.colorScheme, model.isDark ? .dark : .light)
     }
 }
@@ -57,6 +68,7 @@ struct TabStripView: View {
 /// indicator, a new-tab button, and empty space that drags the window.
 struct TabStripContent: View {
     let items: [TabItemState]
+    var hosts: [HostProfile] = []
     let leadingInset: CGFloat
     let actions: TabStripActions
     @State private var hovered: SessionID?
@@ -112,16 +124,34 @@ struct TabStripContent: View {
         .padding(.vertical, 2)
     }
 
+    /// + opens a menu: a local shell, any saved host, or Quick Connect. (⌘T still opens a
+    /// local tab directly.)
     private var newTabButton: some View {
-        Button(action: actions.newTab) {
+        Menu {
+            Button("Local Shell", systemImage: "terminal", action: actions.newTab)
+            Menu("Remote", systemImage: "server.rack") {
+                if hosts.isEmpty {
+                    Text("No saved hosts")
+                } else {
+                    ForEach(hosts) { host in
+                        Button(host.name) { actions.connect(host) }
+                    }
+                }
+                Divider()
+                Button("Manage Hosts…", action: actions.manageHosts)
+            }
+            Button("Quick Connect…", systemImage: "bolt", action: actions.quickConnect)
+        } label: {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .medium))
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .foregroundStyle(.secondary)
-        .help("New Tab (⌘T)")
+        .help("New Tab")
         .accessibilityLabel("New tab")
     }
 
