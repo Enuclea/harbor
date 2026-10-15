@@ -176,10 +176,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         }
     }
 
+    /// Fits the window to the configured columns × rows, or to the screen if that's larger.
     private func sizeWindow(to container: TerminalContainerView) {
         guard let window else { return }
         let size = container.preferredContentSize
-        window.setContentSize(NSSize(width: size.width, height: size.height + root.stripHeightValue))
+        var content = NSSize(width: size.width, height: size.height + root.stripHeightValue)
+        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
+            let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content))
+            content.width = min(content.width, visible.width - (frame.width - content.width))
+            content.height = min(content.height, visible.height - (frame.height - content.height))
+        }
+        window.setContentSize(content)
     }
 
     private func handleBell(in session: TerminalSession) {

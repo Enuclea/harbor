@@ -29,6 +29,8 @@ final class TerminalContainerView: NSView {
     private var flyoutOffscreen: NSLayoutConstraint?
     private var paddingConstraints: [NSLayoutConstraint] = []
     private(set) var fontSizeDelta: CGFloat = 0
+    /// The text area for the configured columns × rows (Settings → General → New windows).
+    private let configuredTerminalSize: NSSize
 
     static let flyoutWidth: CGFloat = 360
     /// The most of the tab the flyout may take, so a narrow window keeps a usable terminal.
@@ -42,9 +44,11 @@ final class TerminalContainerView: NSView {
         let options = TerminalOptions(
             cols: settings.appearance.initialColumns, rows: settings.appearance.initialRows,
             termName: settings.terminal.termType, scrollback: settings.terminal.scrollbackLines)
+        // A zero frame makes SwiftTerm keep the options' columns × rows; any other frame
+        // recomputes the grid from it, which would lose the configured size.
         terminal = HarborTerminalView(
-            frame: NSRect(x: 0, y: 0, width: 800, height: 500),
-            font: TerminalAppearance.font(for: settings.appearance, sizeDelta: 0), options: options)
+            frame: .zero, font: TerminalAppearance.font(for: settings.appearance, sizeDelta: 0), options: options)
+        configuredTerminalSize = terminal.getOptimalFrameSize().size
         binding = TerminalSessionBinding(session: session, view: terminal, settings: services.settings)
         overlayHost = NSHostingView(rootView: SessionOverlay(session: session, actions: services.actions))
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
@@ -70,12 +74,12 @@ final class TerminalContainerView: NSView {
         addSubview(overlayHost)
         addLayoutGuide(flyoutSlot)
 
-        let padding = CGFloat(settings.appearance.contentPadding)
+        let insets = Self.insets(padding: CGFloat(settings.appearance.contentPadding))
         paddingConstraints = [
-            terminal.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padding),
-            terminal.trailingAnchor.constraint(equalTo: flyoutSlot.leadingAnchor, constant: -max(2, padding - 4)),
-            terminal.topAnchor.constraint(equalTo: topAnchor, constant: max(4, padding / 2)),
-            terminal.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -max(2, padding / 2)),
+            terminal.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insets.left),
+            terminal.trailingAnchor.constraint(equalTo: flyoutSlot.leadingAnchor, constant: -insets.right),
+            terminal.topAnchor.constraint(equalTo: topAnchor, constant: insets.top),
+            terminal.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -insets.bottom),
         ]
         let collapsed = flyoutSlot.widthAnchor.constraint(equalToConstant: 0)
         slotCollapsed = collapsed
@@ -90,11 +94,17 @@ final class TerminalContainerView: NSView {
         ])
     }
 
-    /// The window content size that fits the configured columns × rows.
+    /// Space between the container's edges and the text grid for a padding setting.
+    static func insets(padding: CGFloat) -> NSEdgeInsets {
+        NSEdgeInsets(top: max(4, padding / 2), left: padding, bottom: max(2, padding / 2), right: max(2, padding - 4))
+    }
+
+    /// The content size that fits the configured columns × rows. Half a point of slack
+    /// keeps rounding from costing the last row or column.
     var preferredContentSize: NSSize {
-        let optimal = terminal.getOptimalFrameSize().size
-        let padding = CGFloat(services.settings.settings.appearance.contentPadding)
-        return NSSize(width: optimal.width + padding * 2, height: optimal.height + padding)
+        let insets = Self.insets(padding: CGFloat(services.settings.settings.appearance.contentPadding))
+        return NSSize(width: configuredTerminalSize.width + insets.left + insets.right + 0.5,
+                      height: configuredTerminalSize.height + insets.top + insets.bottom + 0.5)
     }
 
     // MARK: Appearance
@@ -106,9 +116,9 @@ final class TerminalContainerView: NSView {
         // Window-level background, blur and appearance belong to the window's root view.
         let translucent = settings.appearance.backgroundOpacity < 0.999
         layer?.backgroundColor = translucent ? NSColor.clear.cgColor : theme.background.nsColor.cgColor
-        let padding = CGFloat(settings.appearance.contentPadding)
-        paddingConstraints[0].constant = padding
-        paddingConstraints[1].constant = -max(2, padding - 4)
+        let insets = Self.insets(padding: CGFloat(settings.appearance.contentPadding))
+        paddingConstraints[0].constant = insets.left
+        paddingConstraints[1].constant = -insets.right
     }
 
     override func viewDidMoveToWindow() {
