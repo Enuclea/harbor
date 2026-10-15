@@ -61,7 +61,7 @@ final class TerminalContainerView: NSView {
         paddingConstraints = [
             terminal.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padding),
             terminal.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -max(2, padding - 4)),
-            terminal.topAnchor.constraint(equalTo: topAnchor, constant: max(2, padding / 2)),
+            terminal.topAnchor.constraint(equalTo: topAnchor, constant: max(4, padding / 2)),
             terminal.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -max(2, padding / 2)),
         ]
         NSLayoutConstraint.activate(paddingConstraints + [

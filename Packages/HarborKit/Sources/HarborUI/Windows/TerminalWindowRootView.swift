@@ -17,10 +17,16 @@ final class TerminalWindowRootView: NSView {
 
     /// Title bar height with the window's unified toolbar; the fallback for full screen.
     static let minimumStripHeight: CGFloat = 46
+    /// Breathing room between the tabs and the first line of terminal text.
+    static let gapBelowStrip: CGFloat = 4
 
     init(model: WindowTabsModel, actions: TabStripActions) {
         self.model = model
         stripHost = NSHostingView(rootView: TabStripView(model: model, actions: actions))
+        // The strip sits inside the title bar, which SwiftUI treats as unsafe area: without
+        // this it lays the tabs out *below* the strip, on top of the terminal text.
+        stripHost.safeAreaRegions = []
+        stripHost.clipsToBounds = true
         super.init(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
         wantsLayer = true
 
@@ -58,7 +64,7 @@ final class TerminalWindowRootView: NSView {
 
             contentArea.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentArea.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentArea.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            contentArea.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: Self.gapBelowStrip),
             contentArea.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
@@ -112,7 +118,7 @@ final class TerminalWindowRootView: NSView {
         if abs(model.leadingInset - inset) > 0.5 { model.leadingInset = inset }
     }
 
-    var stripHeightValue: CGFloat { stripHeight.constant + 1 }
+    var stripHeightValue: CGFloat { stripHeight.constant + 1 + Self.gapBelowStrip }
 
     func applyAppearance(theme: TerminalTheme, settings: AppSettings) {
         let opacity = CGFloat(settings.appearance.backgroundOpacity)
