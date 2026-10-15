@@ -22,7 +22,9 @@ policy-gated OSC 52 clipboard, session restore.
 **Hosts and keys** — saved hosts with colours, tags, per-host themes, jump hosts and startup
 commands. Import from `~/.ssh/config`, Quick Connect (⇧⌘K) with fuzzy search, Dock menu.
 Generate Ed25519 keys, import by drag and drop, add to the agent with passphrases kept in the
-Keychain, and install a key on a host in one click.
+Keychain, and install a key on a host in one click. Optionally install Harbor's shell
+integration on a host (one click, removable) so its tabs show the commands you type, exit codes
+and the current folder, just like local tabs.
 
 **Files** — ⇧⌘B opens a flyout on any tab. On SSH tabs it browses the server over SFTP,
 reusing the tab's authenticated connection (no second login, no second 2FA prompt). Drag files

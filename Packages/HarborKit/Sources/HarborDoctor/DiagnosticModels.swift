@@ -56,6 +56,21 @@ public struct CheckResult: Sendable, Identifiable, Equatable {
     }
 }
 
+/// One open SSH tab, for the remote-integration check.
+public struct SSHTabFact: Sendable, Equatable {
+    public let hostName: String
+    public let integrationInstalled: Bool
+    public let reporting: Bool
+    public let connectedSeconds: TimeInterval
+
+    public init(hostName: String, integrationInstalled: Bool, reporting: Bool, connectedSeconds: TimeInterval) {
+        self.hostName = hostName
+        self.integrationInstalled = integrationInstalled
+        self.reporting = reporting
+        self.connectedSeconds = connectedSeconds
+    }
+}
+
 /// Runtime facts the checks can't discover on their own.
 public struct DoctorContext: Sendable {
     public var paths: AppPaths
@@ -68,9 +83,11 @@ public struct DoctorContext: Sendable {
     /// Display names of AI apps Harbor is registered with.
     public var registeredAssistants: [String]
     public var remoteServerRunning: Bool
+    public var sshTabs: [SSHTabFact]
 
     public init(paths: AppPaths, settings: AppSettings, appBundlePath: String, bridgePath: String, controlSocketServing: Bool,
-                shellsReportingIntegration: Set<String>, registeredAssistants: [String], remoteServerRunning: Bool) {
+                shellsReportingIntegration: Set<String>, registeredAssistants: [String], remoteServerRunning: Bool,
+                sshTabs: [SSHTabFact] = []) {
         self.paths = paths
         self.settings = settings
         self.appBundlePath = appBundlePath
@@ -79,6 +96,7 @@ public struct DoctorContext: Sendable {
         self.shellsReportingIntegration = shellsReportingIntegration
         self.registeredAssistants = registeredAssistants
         self.remoteServerRunning = remoteServerRunning
+        self.sshTabs = sshTabs
     }
 }
 

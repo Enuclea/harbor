@@ -54,10 +54,13 @@ struct TabItemState: Identifiable, Equatable {
     /// When the running command started, for the elapsed-time label.
     let busySince: Date?
     let tooltip: String
+    /// An SSH tab whose host isn't reporting through shell integration yet.
+    let offersIntegrationInstall: Bool
 
     init(id: SessionID, title: String, subtitle: String? = nil, subtitleIsCommand: Bool = false,
          failedExitCode: Int32? = nil, commandByAssistant: Bool = false, status: TabStatus, hostColor: HostColor = .none,
-         isSelected: Bool, assistantActive: Bool = false, busySince: Date? = nil, tooltip: String = "") {
+         isSelected: Bool, assistantActive: Bool = false, busySince: Date? = nil, tooltip: String = "",
+         offersIntegrationInstall: Bool = false) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -70,6 +73,7 @@ struct TabItemState: Identifiable, Equatable {
         self.assistantActive = assistantActive
         self.busySince = busySince
         self.tooltip = tooltip.isEmpty ? [title, subtitle].compactMap { $0 }.joined(separator: "\n") : tooltip
+        self.offersIntegrationInstall = offersIntegrationInstall
     }
 
     @MainActor
@@ -93,7 +97,8 @@ struct TabItemState: Identifiable, Equatable {
             id: session.id, title: title, subtitle: line.text, subtitleIsCommand: line.isCommand,
             failedExitCode: line.failedExitCode, commandByAssistant: line.byAssistant, status: status,
             hostColor: session.kind.host?.color ?? .none, isSelected: isSelected, assistantActive: assistantActive,
-            busySince: busySince, tooltip: tooltip.joined(separator: "\n"))
+            busySince: busySince, tooltip: tooltip.joined(separator: "\n"),
+            offersIntegrationInstall: session.kind.host != nil && session.shellIntegration == nil && session.state.isRunning)
     }
 
     // MARK: Derivation

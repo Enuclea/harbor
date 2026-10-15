@@ -7,6 +7,12 @@ public struct ProcessResult: Sendable {
     public let stdout: Data
     public let stderr: Data
 
+    public init(status: Int32, stdout: Data, stderr: Data) {
+        self.status = status
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
     public var succeeded: Bool { status == 0 }
     public var output: String { String(decoding: stdout, as: UTF8.self) }
     public var errorOutput: String { String(decoding: stderr, as: UTF8.self) }

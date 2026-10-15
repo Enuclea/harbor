@@ -93,7 +93,11 @@ final class WindowCoordinator: NSObject, SessionPresenting {
 
     func duplicate(_ session: TerminalSession, in controller: TerminalWindowController) {
         activeController = controller
-        services.sessions.open(session.kind, workingDirectory: session.workingDirectory, placement: .newTab)
+        var kind = session.kind
+        // Use the saved host as it is now (it may have been edited, or gained integration).
+        if case .ssh(let host) = kind, let saved = services.hosts.host(id: host.id) { kind = .ssh(saved) }
+        let directory = kind == .localShell ? session.workingDirectory : nil
+        services.sessions.open(kind, workingDirectory: directory, placement: .newTab)
     }
 
     // MARK: Moving tabs
