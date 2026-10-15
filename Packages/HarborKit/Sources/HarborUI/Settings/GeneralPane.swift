@@ -8,6 +8,28 @@ struct GeneralPane: View {
 
     var body: some View {
         Form {
+            Section("New windows") {
+                LabeledContent("Size") {
+                    HStack(spacing: 6) {
+                        GridDimensionField(value: $store.settings.appearance.initialColumns, range: AppearanceSettings.columnRange)
+                        Text("columns").foregroundStyle(.secondary)
+                        Text("×").foregroundStyle(.tertiary)
+                        GridDimensionField(value: $store.settings.appearance.initialRows, range: AppearanceSettings.rowRange)
+                        Text("rows").foregroundStyle(.secondary)
+                    }
+                }
+                HStack {
+                    Footnote("Windows opened from now on start at this size.")
+                    Spacer()
+                    Button("Use Current Window Size") {
+                        guard let size = services.actions?.frontTerminalSize() else { return }
+                        store.settings.appearance.initialColumns = AppearanceSettings.columnRange.clamp(size.columns)
+                        store.settings.appearance.initialRows = AppearanceSettings.rowRange.clamp(size.rows)
+                    }
+                    .help("Copy the columns and rows of the frontmost terminal window")
+                }
+            }
+
             Section("Shell") {
                 Picker("Shell", selection: $store.settings.shell.shellPath) {
                     Text("Login shell (\(LoginShell.path))").tag(String?.none)
@@ -67,4 +89,27 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
     }
+}
+
+/// A number field with a stepper for a terminal grid dimension, clamped to `range`.
+struct GridDimensionField: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+
+    var body: some View {
+        let clamped = Binding { value } set: { value = range.clamp($0) }
+        HStack(spacing: 2) {
+            TextField("", value: clamped, format: .number.grouping(.never))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 52)
+            Stepper("", value: clamped, in: range).labelsHidden()
+        }
+    }
+}
+
+extension ClosedRange<Int> {
+    func clamp(_ value: Int) -> Int { Swift.min(Swift.max(value, lowerBound), upperBound) }
 }

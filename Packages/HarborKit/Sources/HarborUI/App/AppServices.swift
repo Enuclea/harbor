@@ -94,4 +94,6 @@ protocol AppActions: AnyObject {
     func perform(_ remedy: Remedy)
     func showQuickConnect()
     func showOnboarding()
+    /// The grid size of the frontmost terminal window's tab, if a terminal window is open.
+    func frontTerminalSize() -> TerminalSize?
 }

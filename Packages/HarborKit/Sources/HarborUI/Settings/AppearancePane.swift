@@ -61,12 +61,7 @@ struct AppearancePane: View {
                 LabeledContent("Padding") {
                     Slider(value: $store.settings.appearance.contentPadding, in: 0...24, step: 1)
                 }
-                Stepper(value: $store.settings.appearance.initialColumns, in: 40...400) {
-                    LabeledContent("New window width", value: "\(store.settings.appearance.initialColumns) columns")
-                }
-                Stepper(value: $store.settings.appearance.initialRows, in: 10...200) {
-                    LabeledContent("New window height", value: "\(store.settings.appearance.initialRows) rows")
-                }
+                Footnote("The size new windows open at is under General.")
             }
 
             Section("Rendering") {

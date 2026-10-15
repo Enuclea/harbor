@@ -36,6 +36,8 @@ public struct AppearanceSettings: Codable, Hashable, Sendable {
     public var contentPadding: Double = 8
     public var initialColumns = 100
     public var initialRows = 30
+    public static let columnRange = 40...400
+    public static let rowRange = 10...200
 
     public init() {}
 }

@@ -294,6 +294,10 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
         NSApp.activate()
     }
 
+    func frontTerminalSize() -> TerminalSize? {
+        windows.keyController?.selectedSession?.size
+    }
+
     // MARK: Menu actions
 
     @objc func showSettings(_ sender: Any?) { openSettings(section: nil) }
