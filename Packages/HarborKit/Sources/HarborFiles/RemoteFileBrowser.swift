@@ -135,7 +135,7 @@ public actor RemoteFileBrowser: FileBrowsing {
 
     // MARK: Helpers
 
-    private func connected() async throws -> SFTPClient {
+    func connected() async throws -> SFTPClient {
         if let client, await client.isOpen { return client }
         let client = SFTPClient(transport: try makeTransport())
         do {

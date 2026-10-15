@@ -27,6 +27,12 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
     public var isFavorite: Bool
     public var lastConnected: Date?
     public var notes: String?
+    /// Harbor's shell integration is installed on the host (status, exit codes and the
+    /// running command then show for this host's tabs).
+    public var remoteIntegration: Bool
+    /// The host's sshd drops `LC_TERMINAL`, so Harbor starts the login shell with the
+    /// marker set explicitly instead.
+    public var remoteIntegrationMarker: Bool
 
     public init(
         id: HostID = HostID(),
@@ -45,7 +51,9 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         themeID: String? = nil,
         isFavorite: Bool = false,
         lastConnected: Date? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        remoteIntegration: Bool = false,
+        remoteIntegrationMarker: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -64,11 +72,14 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         self.isFavorite = isFavorite
         self.lastConnected = lastConnected
         self.notes = notes
+        self.remoteIntegration = remoteIntegration
+        self.remoteIntegrationMarker = remoteIntegrationMarker
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, hostname, user, port, identityFile, jumpHost, usesSSHConfigAlias, forwardAgent
         case startupCommand, remoteDirectory, tags, color, themeID, isFavorite, lastConnected, notes
+        case remoteIntegration, remoteIntegrationMarker
     }
 
     /// Lenient decoding: only `hostname` is required, so files written by older or newer
@@ -93,7 +104,9 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
             themeID: try c.decodeIfPresent(String.self, forKey: .themeID),
             isFavorite: try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false,
             lastConnected: try c.decodeIfPresent(Date.self, forKey: .lastConnected),
-            notes: try c.decodeIfPresent(String.self, forKey: .notes)
+            notes: try c.decodeIfPresent(String.self, forKey: .notes),
+            remoteIntegration: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegration) ?? false,
+            remoteIntegrationMarker: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegrationMarker) ?? false
         )
     }
 

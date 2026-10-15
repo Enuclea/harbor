@@ -41,13 +41,28 @@ public struct SSHCommandBuilder: Sendable {
     /// `%C` is a hash of local host, remote host, port, user and jump host — short and unique.
     public var controlPath: String { controlDirectory.path + "/%C" }
 
+    /// Starts the remote login shell with Harbor's marker exported, for hosts whose sshd
+    /// doesn't accept `LC_TERMINAL`. Works for sh, bash, zsh and fish login shells.
+    public static let markedLoginShell = #"export LC_TERMINAL=Harbor; exec "$SHELL" -l"#
+
     /// The login for a terminal tab.
     public func interactive(_ host: HostProfile) -> CommandSpec {
-        var arguments = sharingOptions(master: "auto") + keepAliveOptions + hostOptions(host)
-        let startup = host.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !startup.isEmpty { arguments.append("-t") }
+        var arguments = sharingOptions(master: "auto") + keepAliveOptions + environmentOptions + hostOptions(host)
+        var remoteCommand = host.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if remoteCommand.isEmpty, host.remoteIntegration, host.remoteIntegrationMarker {
+            remoteCommand = Self.markedLoginShell
+        }
+        if !remoteCommand.isEmpty { arguments.append("-t") }
         arguments += ["--", host.hostname]
-        if !startup.isEmpty { arguments.append(startup) }
+        if !remoteCommand.isEmpty { arguments.append(remoteCommand) }
+        return CommandSpec(sshPath, arguments)
+    }
+
+    /// Runs one non-interactive command on the host over the shared connection, never
+    /// prompting (it fails instead).
+    public func remoteCommand(_ command: String, on host: HostProfile) -> CommandSpec {
+        let arguments = sharingOptions(master: "auto") + keepAliveOptions + environmentOptions + hostOptions(host)
+            + ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-T", "--", host.hostname, command]
         return CommandSpec(sshPath, arguments)
     }
 
@@ -94,6 +109,12 @@ public struct SSHCommandBuilder: Sendable {
             "-o", "ControlPath=\(controlPath)",
             "-o", "ControlPersist=\(max(0, persistSeconds))",
         ]
+    }
+
+    /// Forward Harbor's marker so remote shell integration knows it's in Harbor (in
+    /// addition to macOS's default `SendEnv LANG LC_*`).
+    private var environmentOptions: [String] {
+        ["-o", "SendEnv=LC_TERMINAL"]
     }
 
     private var keepAliveOptions: [String] {

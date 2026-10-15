@@ -32,6 +32,7 @@ struct TabStripActions: Sendable {
     var closeOthers: @MainActor @Sendable (SessionID) -> Void = { _ in }
     /// Moves a tab (possibly from another window) before `target`, or to the end when nil.
     var move: @MainActor @Sendable (_ id: SessionID, _ target: SessionID?) -> Void = { _, _ in }
+    var installIntegration: @MainActor @Sendable (SessionID) -> Void = { _ in }
 }
 
 /// Live binding of the strip to a window's model.
@@ -152,6 +153,9 @@ struct TabItemView: View {
         Button("Duplicate Tab") { actions.duplicate(item.id) }
         if item.status == .exited || item.status == .failed {
             Button("Reconnect / Restart") { actions.reconnect(item.id) }
+        }
+        if item.offersIntegrationInstall {
+            Button("Install Shell Integration on This Host…") { actions.installIntegration(item.id) }
         }
         Divider()
         Button("Move to New Window") { actions.moveToNewWindow(item.id) }

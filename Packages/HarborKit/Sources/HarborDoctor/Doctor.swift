@@ -19,6 +19,7 @@ public struct Doctor: Sendable {
         SSHDirectoryCheck(),
         SSHAgentCheck(),
         ConnectionSharingCheck(),
+        RemoteIntegrationCheck(),
         AssistantBridgeCheck(),
         RemoteAccessCheck(),
         LogStorageCheck(),

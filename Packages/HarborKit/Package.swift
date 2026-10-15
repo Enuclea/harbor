@@ -53,11 +53,13 @@ let package = Package(
             resources: [.copy("Resources/web")]
         ),
         .target(name: "HarborDoctor", dependencies: ["HarborCore", "HarborLogging", "HarborSSH", "HarborShell"]),
+        // Provisioning on remote hosts (shell integration) over the shared SSH connection.
+        .target(name: "HarborHostSetup", dependencies: ["HarborCore", "HarborLogging", "HarborSSH", "HarborShell", "HarborFiles"]),
         .target(
             name: "HarborUI",
             dependencies: [
                 "HarborCore", "HarborLogging", "HarborPTY", "HarborShell", "HarborSSH", "HarborFiles",
-                "HarborControl", "HarborSessions", "HarborMCP", "HarborRemote", "HarborDoctor",
+                "HarborControl", "HarborSessions", "HarborMCP", "HarborRemote", "HarborDoctor", "HarborHostSetup",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ]
         ),
@@ -74,5 +76,6 @@ let package = Package(
         .testTarget(name: "HarborRemoteTests", dependencies: ["HarborRemote"]),
         .testTarget(name: "HarborDoctorTests", dependencies: ["HarborDoctor"]),
         .testTarget(name: "HarborUITests", dependencies: ["HarborUI", "HarborCore"]),
+        .testTarget(name: "HarborHostSetupTests", dependencies: ["HarborHostSetup", "HarborFiles", "HarborSSH", "HarborShell"]),
     ]
 )

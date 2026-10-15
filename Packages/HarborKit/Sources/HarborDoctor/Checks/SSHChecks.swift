@@ -78,3 +78,27 @@ struct ConnectionSharingCheck: DiagnosticCheck {
         return result(.pass, "One sign-in per host is shared by tabs and the file browser.")
     }
 }
+
+/// Whether SSH tabs report status and commands from the remote shell.
+struct RemoteIntegrationCheck: DiagnosticCheck {
+    let id = "remote-integration"
+    let title = "SSH shell integration"
+
+    func run(_ context: DoctorContext) async -> CheckResult {
+        let tabs = context.sshTabs.filter { $0.connectedSeconds > 10 }
+        guard !tabs.isEmpty else { return result(.pass, "No SSH tabs open.") }
+        let hosts = { (facts: [SSHTabFact]) in Array(Set(facts.map(\.hostName))).sorted().joined(separator: ", ") }
+        let silent = tabs.filter { $0.integrationInstalled && !$0.reporting }
+        if !silent.isEmpty {
+            return result(.warning, "Installed on \(hosts(silent)) but not reporting.",
+                          detail: "Open a new tab to the host. If it still doesn't report, reinstall from the host's settings: Harbor checks whether the server drops LC_TERMINAL and starts your shell with the marker instead.",
+                          remedy: Remedy("Open Hosts", .openSettings(section: "hosts")))
+        }
+        let missing = tabs.filter { !$0.integrationInstalled && !$0.reporting }
+        if !missing.isEmpty {
+            return result(.info, "Not installed on \(hosts(missing)). Commands you type there won't show on their tabs (an assistant's commands still do).",
+                          remedy: Remedy("Open Hosts", .openSettings(section: "hosts")))
+        }
+        return result(.pass, "Reporting from every connected host.")
+    }
+}

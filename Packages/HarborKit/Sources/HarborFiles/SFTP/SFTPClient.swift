@@ -135,6 +135,45 @@ public actor SFTPClient {
         try expectOK(await request(.write, { $0.bytes(handle); $0.uint64(offset); $0.bytes(data) }))
     }
 
+    // MARK: Whole files
+
+    /// Reads a small file into memory (for config files, not transfers).
+    public func readFile(_ path: String, limit: Int = 4 * 1024 * 1024) async throws -> Data {
+        let handle = try await openFile(path, flags: .read)
+        var data = Data()
+        do {
+            while let chunk = try await read(handle, offset: UInt64(data.count), length: UInt32(Self.chunkSize)), !chunk.isEmpty {
+                data.append(chunk)
+                if data.count > limit { throw SFTPError.status(.failure, "\(path) is too large to edit.") }
+            }
+            try await closeHandle(handle)
+        } catch {
+            try? await closeHandle(handle)
+            throw error
+        }
+        return data
+    }
+
+    /// Replaces a file's contents and sets its permissions.
+    public func writeFile(_ path: String, contents: Data, permissions: UInt32) async throws {
+        let bytes = Data(contents)
+        let handle = try await openFile(path, flags: [.write, .create, .truncate], attributes: SFTPAttributes(permissions: permissions))
+        do {
+            var offset = 0
+            while offset < bytes.count {
+                let end = min(offset + Self.chunkSize, bytes.count)
+                try await write(handle, offset: UInt64(offset), data: bytes.subdata(in: offset..<end))
+                offset = end
+            }
+            try await closeHandle(handle)
+        } catch {
+            try? await closeHandle(handle)
+            throw error
+        }
+        // Attributes given to OPEN only apply when the file is created.
+        try await setPermissions(path, permissions)
+    }
+
     // MARK: Transfers
 
     /// Downloads `remotePath` to `localURL`, replacing it. A failed or cancelled download

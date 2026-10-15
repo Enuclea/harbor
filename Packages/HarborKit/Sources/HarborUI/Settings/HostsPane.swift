@@ -154,6 +154,14 @@ struct HostEditorView: View {
                     TextField("Run on connect", text: .optionalString($host.startupCommand), prompt: Text("e.g. tmux new -As main"))
                     TextField("File browser opens in", text: .optionalString($host.remoteDirectory), prompt: Text("Home folder"))
                 }
+                if !isNew {
+                    Section("Shell integration on this host") {
+                        RemoteIntegrationSection(host: host, services: services) { installed, marker in
+                            host.remoteIntegration = installed
+                            host.remoteIntegrationMarker = marker
+                        }
+                    }
+                }
                 Section("Organise") {
                     TextField("Tags", text: $tags, prompt: Text("prod, web"))
                     Picker("Colour", selection: $host.color) {
@@ -195,7 +203,7 @@ struct HostEditorView: View {
             }
             .padding()
         }
-        .frame(width: 520, height: 640)
+        .frame(width: 540, height: 700)
     }
 
     private func test() {

@@ -211,7 +211,28 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
             move: { [weak self] id, target in
                 guard let self else { return }
                 self.coordinator?.moveSession(id, to: self, before: target)
-            })
+            },
+            installIntegration: { [weak self] id in self?.session(id).map { self?.installIntegration(for: $0) } })
+    }
+
+    /// Installs shell integration on an SSH tab's host, then offers a fresh tab that uses it.
+    private func installIntegration(for session: TerminalSession) {
+        guard let host = session.kind.host, let window else { return }
+        Task {
+            do {
+                let report = try await RemoteIntegrationActions.install(host, services: services)
+                let alert = NSAlert()
+                alert.messageText = "Shell integration installed on \(host.name)"
+                alert.informativeText = report.summary + " New tabs to this host will use it."
+                alert.addButton(withTitle: "Open New Tab")
+                alert.addButton(withTitle: "Later")
+                if await alert.beginSheetModal(for: window) == .alertFirstButtonReturn {
+                    coordinator?.duplicate(session, in: self)
+                }
+            } catch {
+                await NSAlert(error: error).beginSheetModal(for: window)
+            }
+        }
     }
 
     private func session(_ id: SessionID) -> TerminalSession? {
@@ -336,7 +357,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
             do {
                 try container.terminal.getBufferAsData(kind: .normal).write(to: url, options: .atomic)
             } catch {
-                NSAlert(error: error).beginSheetModal(for: window)
+                NSAlert(error: error).beginSheetModal(for: window, completionHandler: nil)
             }
         }
     }

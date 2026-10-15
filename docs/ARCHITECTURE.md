@@ -58,6 +58,7 @@ SFTP file flyout, an MCP server for AI assistants, and secure remote access from
 | `HarborMCP` | JSON-RPC, MCP lifecycle, tool catalogue, Unix-socket transport | Sessions (talks only to `TerminalControlling`) |
 | `HarborRemote` | HTTP/WebSocket server, auth, tunnel providers, web UI assets | Sessions (talks only to `TerminalControlling`) |
 | `HarborDoctor` | Health checks, failure advice, support bundle | UI |
+| `HarborHostSetup` | Installing/removing shell integration on SSH hosts over the shared connection | UI, sessions |
 | `HarborUI` | Windows, native tabs, terminal view binding, Control Center, onboarding, flyout | — (composition root) |
 
 Rules: dependencies point downward only; cross-module contracts are protocols
@@ -70,6 +71,14 @@ Rules: dependencies point downward only; cross-module contracts are protocols
 exited from OSC 133 marks, the foreground process and output timing. zsh and fish report the
 command line via `OSC 1337;HarborCommand=…`; commands an assistant types through MCP are recorded
 directly, so line 2 of a tab is accurate even on hosts without shell integration.
+
+**Shell integration on SSH hosts (opt-in).** Host settings ▸ Install copies the zsh/bash/fish
+scripts to `~/.harbor/shell` over SFTP and adds a marked block to the remote startup file that
+loads them only in interactive shells with `LC_TERMINAL=Harbor` (macOS ssh forwards `LC_*`;
+Harbor adds `SendEnv=LC_TERMINAL`). The installer probes whether sshd accepted the marker; if
+not (e.g. RHEL's default `AcceptEnv`), tabs to that host start the login shell with
+`export LC_TERMINAL=Harbor; exec "$SHELL" -l`. Startup files are backed up once and the block is
+removable from Harbor.
 
 **Keystroke → shell.** `TerminalView` (main thread) → `TerminalSession.send` → `PTYProcess`
 write queue (non-blocking, back-pressured with a write source).
