@@ -12,7 +12,7 @@ struct FileBrowserPanel: View {
             breadcrumbs
             Divider().opacity(0.5)
             ZStack {
-                FileTableView(model: model)
+                FileTableView(model: model, onClose: onClose)
                     .opacity(model.error == nil ? 1 : 0.35)
                 if let error = model.error {
                     errorView(error)
@@ -45,9 +45,10 @@ struct FileBrowserPanel: View {
             .help(model.showHidden ? "Hide hidden files" : "Show hidden files")
             Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh")
+            // No Escape shortcut here: it would apply window-wide and take Esc from vim.
+            // The file list handles Escape while it has focus.
             Button(action: onClose) { Image(systemName: "xmark") }
-                .help("Close")
-                .keyboardShortcut(.cancelAction)
+                .help("Close (Esc in the file list)")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 14)

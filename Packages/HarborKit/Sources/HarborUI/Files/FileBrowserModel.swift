@@ -21,6 +21,10 @@ final class FileBrowserModel {
     /// Follow the terminal's working directory as it changes.
     var followsTerminal = true
 
+    /// Hands the keyboard back to the terminal, replaying `event` there if given. Set by
+    /// the tab's container.
+    @ObservationIgnored var returnFocusToTerminal: @MainActor (NSEvent?) -> Void = { _ in }
+
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private let log = Log(.sftp)
     @ObservationIgnored private var isActive = false
@@ -203,6 +207,7 @@ final class FileBrowserModel {
 
     func changeTerminalDirectory(to directory: String) {
         session.send(text: "cd \(ShellQuoting.quote(directory))\r")
+        returnFocusToTerminal(nil)
     }
 
     func copyPath(_ entry: FileEntry) {

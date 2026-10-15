@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// dropped), and files dropped in are uploaded.
 struct FileTableView: NSViewRepresentable {
     let model: FileBrowserModel
+    let onClose: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+    func makeCoordinator() -> Coordinator { Coordinator(model: model, onClose: onClose) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = FileTable()
@@ -58,6 +59,7 @@ struct FileTableView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSFilePromiseProviderDelegate, NSMenuDelegate {
         let model: FileBrowserModel
+        let onClose: () -> Void
         weak var table: NSTableView?
         private var rows: [FileEntry] = []
         private let promiseQueue: OperationQueue = {
@@ -66,8 +68,9 @@ struct FileTableView: NSViewRepresentable {
             return queue
         }()
 
-        init(model: FileBrowserModel) {
+        init(model: FileBrowserModel, onClose: @escaping () -> Void) {
             self.model = model
+            self.onClose = onClose
         }
 
         func reloadIfNeeded(_ entries: [FileEntry]) {
@@ -155,6 +158,8 @@ struct FileTableView: NSViewRepresentable {
             Task { await model.open(entry) }
         }
 
+        /// The list keeps navigation keys; anything else is typing meant for the shell, so it
+        /// goes to the terminal (and the terminal takes the keyboard back).
         func handleKey(_ event: NSEvent) -> Bool {
             switch event.keyCode {
             case 36, 76: // return, enter
@@ -163,13 +168,22 @@ struct FileTableView: NSViewRepresentable {
             case 51, 117: // delete, forward delete
                 confirmDelete()
                 return true
+            case 53: // escape
+                onClose()
+                return true
             case 126 where event.modifierFlags.contains(.command): // ⌘↑
                 Task { await model.goUp() }
                 return true
-            default:
+            case _ where Self.tableKeys.contains(event.keyCode) || event.modifierFlags.contains(.command):
                 return false
+            default:
+                model.returnFocusToTerminal(event)
+                return true
             }
         }
+
+        /// Arrows, Tab, Page Up/Down, Home and End.
+        static let tableKeys: Set<UInt16> = [123, 124, 125, 126, 48, 116, 121, 115, 119]
 
         // MARK: Drag out
 
