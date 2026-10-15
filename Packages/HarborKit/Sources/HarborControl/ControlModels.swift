@@ -23,10 +23,15 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
     public let shellIntegration: String?
     public let isAtPrompt: Bool
     public let lastCommandExitCode: Int32?
+    /// `starting`, `idle`, `busy`, `streaming`, `exited` or `failed`.
+    public let activity: String
+    /// The command line currently running, when shell integration reports it.
+    public let runningCommand: String?
 
     public init(id: String, index: Int, title: String, kind: String, host: String?, workingDirectory: String?,
                 foregroundProcess: String?, state: String, exitCode: Int32?, isFocused: Bool, columns: Int, rows: Int,
-                shellIntegration: String?, isAtPrompt: Bool, lastCommandExitCode: Int32?) {
+                shellIntegration: String?, isAtPrompt: Bool, lastCommandExitCode: Int32?,
+                activity: String = "idle", runningCommand: String? = nil) {
         self.id = id
         self.index = index
         self.title = title
@@ -42,6 +47,8 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.shellIntegration = shellIntegration
         self.isAtPrompt = isAtPrompt
         self.lastCommandExitCode = lastCommandExitCode
+        self.activity = activity
+        self.runningCommand = runningCommand
     }
 }
 

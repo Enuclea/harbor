@@ -12,7 +12,7 @@ SFTP file flyout, an MCP server for AI assistants, and secure remote access from
 
 | Concern | Choice | Why |
 |---|---|---|
-| Language / UI | Swift 6 (strict concurrency), AppKit for windows/terminal, SwiftUI for panels | AppKit gives Terminal.app-identical window tabbing, responder chain and key handling; SwiftUI is faster to build polished management UI. |
+| Language / UI | Swift 6 (strict concurrency), AppKit for windows/terminal, SwiftUI for panels and the tab strip | AppKit gives the responder chain, key handling and window behaviour; SwiftUI is faster to build polished UI. Tabs are Harbor's own (not NSWindow tabbing) so each can show live status and the running command. |
 | Terminal engine | [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) 1.99, **Metal renderer** | Pure Swift, SPM, MIT. Ships a Metal renderer, OSC 133 semantic prompts, Kitty keyboard/graphics, sixel, thread-safe `feed`. Wrapped behind `TerminalSessionBinding` so a future swap (e.g. libghostty) touches one module. |
 | PTY | Own C shim (`CHarborPTY`) + Swift `PTYProcess` | `fork` must run only async-signal-safe code in the child; doing that in C is the only fully correct option. We control `setsid`/`TIOCSCTTY`, fd hygiene, `IUTF8`. |
 | SSH | System OpenSSH (`/usr/bin/ssh`) in a PTY | Honours the user's `~/.ssh/config`, agent, keychain, ProxyJump, FIDO keys, 2FA prompts — nothing to reimplement or audit. |
@@ -65,6 +65,11 @@ Rules: dependencies point downward only; cross-module contracts are protocols
 `FileBrowsing`, `TunnelProvider`, `DiagnosticCheck`); files stay small and single-purpose.
 
 ## 3. Key flows
+
+**Tab status.** `TerminalSession.activity` (HarborSessions) derives idle / busy / streaming /
+exited from OSC 133 marks, the foreground process and output timing. zsh and fish report the
+command line via `OSC 1337;HarborCommand=…`; commands an assistant types through MCP are recorded
+directly, so line 2 of a tab is accurate even on hosts without shell integration.
 
 **Keystroke → shell.** `TerminalView` (main thread) → `TerminalSession.send` → `PTYProcess`
 write queue (non-blocking, back-pressured with a write source).
@@ -130,7 +135,7 @@ secrets) for little gain over event-triggered checks, so we don't build that.
 
 ## 6. Terminal.app parity checklist
 
-Native window tabs (drag out/merge, Show All Tabs) · profiles/themes · font & live zoom ·
+Title-bar tab strip with live status (drag to reorder or between windows, merge, move to new window) · profiles/themes · font & live zoom ·
 cursor shape/blink · background opacity + blur · Option as Meta · bell (sound / visual / dock badge) ·
 scrollback size · Find (⌘F/⌘G) · Clear scrollback (⌘K) · jump to previous/next prompt (⌘↑/⌘↓) ·
 new tab in same directory · proxy icon for cwd · confirm close when a process is running ·

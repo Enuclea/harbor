@@ -82,6 +82,31 @@ struct SessionControlTests {
         harness.manager.close(session)
     }
 
+    @Test func activityTracksRunningCommands() async throws {
+        let harness = try Harness { $0.ai.inputPolicy = .allow }
+        let session = try await harness.openReadyShell()
+        #expect(session.activity == .idle(lastExitCode: nil))
+
+        try await harness.control.sendInput("1", text: "sleep 1\r", client: assistant)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while case .idle = session.activity, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
+        guard case .busy(let since, let command) = session.activity else {
+            Issue.record("expected busy, got \(session.activity)")
+            return
+        }
+        #expect(since != nil)
+        #expect(command == "sleep 1")
+        #expect(try await harness.control.describeSession("1").activity == "busy")
+        #expect(try await harness.control.describeSession("1").runningCommand == "sleep 1")
+
+        while case .busy = session.activity, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(session.activity == .idle(lastExitCode: 0))
+        #expect(session.runningCommand == nil)
+        #expect(session.lastCommandLine == "sleep 1", "the last command stays visible after it finishes")
+        #expect(session.lastCommandFromAssistant)
+        harness.manager.close(session)
+    }
+
     @Test func listsAndDescribesTabs() async throws {
         let harness = try Harness()
         let session = try await harness.openReadyShell()

@@ -40,7 +40,11 @@ _harbor_precmd() {
   return $last_status
 }
 
+# $1 is the command line; it's reported (percent-encoded, first 200 characters) so
+# Harbor can show what a busy tab is running.
 _harbor_preexec() {
+  _harbor_urlencode "${1[1,200]}"
+  builtin print -rn -- $'\e]1337;HarborCommand='"${REPLY}"$'\a'
   builtin print -rn -- $'\e]133;C\a'
   _harbor_command_running=1
 }
@@ -58,4 +62,4 @@ typeset -ga precmd_functions preexec_functions
 precmd_functions=(_harbor_precmd ${precmd_functions:#(_harbor_precmd|_harbor_mark_prompt_end)} _harbor_mark_prompt_end)
 preexec_functions=(${preexec_functions:#_harbor_preexec} _harbor_preexec)
 
-builtin print -rn -- $'\e]1337;HarborShellIntegration=zsh;version=1\a'
+builtin print -rn -- $'\e]1337;HarborShellIntegration=zsh;version=2\a'

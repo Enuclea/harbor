@@ -32,6 +32,19 @@ public final class TerminalSession: Identifiable {
     public private(set) var hasUnseenActivity = false
     /// When an assistant last acted on this tab, for the activity indicator.
     public private(set) var assistantActivityAt: Date?
+    /// The command line currently running, as reported by shell integration (zsh, fish).
+    public private(set) var runningCommand: String?
+    /// The most recent command line, kept after it finishes — from shell integration, or
+    /// from what an assistant typed (which works even on hosts without integration).
+    public private(set) var lastCommandLine: String?
+    /// Whether `lastCommandLine` was submitted by an AI assistant.
+    public private(set) var lastCommandFromAssistant = false
+    /// Output arrived recently without the user typing — a program is producing output.
+    public private(set) var isStreamingOutput = false
+    /// The bell rang while the user wasn't looking at this tab.
+    public private(set) var bellPending = false
+    /// Anything has been printed yet (an SSH tab with no output is still connecting).
+    public private(set) var hasOutput = false
 
     @ObservationIgnored public let pipeline = SessionPipeline()
     /// Supplied by the terminal view; used to answer `read_screen` precisely.
@@ -46,6 +59,8 @@ public final class TerminalSession: Identifiable {
     @ObservationIgnored private var launchError: String?
     @ObservationIgnored private var commandWaiters: [UUID: CheckedContinuation<CommandWait, Never>] = [:]
     @ObservationIgnored private let log = Log(.session)
+    @ObservationIgnored private var lastInputAt: ContinuousClock.Instant?
+    @ObservationIgnored private var pendingAssistantCommand: String?
 
     init(id: SessionID = SessionID(), kind: SessionKind, configuration: PTYProcess.Configuration?, launchError: String? = nil) {
         self.id = id
@@ -61,7 +76,12 @@ public final class TerminalSession: Identifiable {
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(events) } }
             },
             activity: { [weak self] in
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.hasUnseenActivity = true } }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.hasUnseenActivity = true
+                        if self?.hasOutput == false { self?.hasOutput = true }
+                    }
+                }
             }))
     }
 
@@ -116,6 +136,8 @@ public final class TerminalSession: Identifiable {
     private func processExited(_ status: TerminationStatus) {
         state = .exited(status)
         isAtPrompt = false
+        isStreamingOutput = false
+        runningCommand = nil
         resumeCommandWaiters(with: .sessionEnded)
         pipeline.setRecorder(nil)
         log.info("session \(id.shortDescription) \(status)")
@@ -127,6 +149,7 @@ public final class TerminalSession: Identifiable {
 
     public func send(_ data: Data) {
         guard state.isRunning else { return }
+        lastInputAt = .now
         process?.write(data)
     }
 
@@ -142,11 +165,26 @@ public final class TerminalSession: Identifiable {
 
     public func markSeen() {
         hasUnseenActivity = false
+        bellPending = false
         pipeline.resetActivity()
+    }
+
+    /// Records a bell the user didn't see (the tab or window wasn't in front).
+    public func ringBell() {
+        bellPending = true
     }
 
     func noteAssistantActivity() {
         assistantActivityAt = Date()
+    }
+
+    /// Records a command line typed on the user's behalf (by an assistant or the API).
+    func noteSubmittedCommand(_ line: String, fromAssistant: Bool) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("\n") else { return }
+        lastCommandLine = String(trimmed.prefix(200))
+        lastCommandFromAssistant = fromAssistant
+        pendingAssistantCommand = fromAssistant ? lastCommandLine : nil
     }
 
     // MARK: Derived
@@ -186,12 +224,22 @@ public final class TerminalSession: Identifiable {
     /// Polled by `SessionManager` to keep titles current and to find the working directory
     /// of shells without integration.
     func refreshProcessInfo() {
+        refreshStreaming()
         guard state.isRunning, let snapshot = process?.foregroundProcess else { return }
         if foregroundProcessName != snapshot.name { foregroundProcessName = snapshot.name }
         if kind == .localShell, shellIntegration == nil, Self.isShell(snapshot.name),
            let directory = snapshot.workingDirectory, directory != workingDirectory {
             workingDirectory = directory
         }
+    }
+
+    /// Output in the last 1.5 s that isn't just the echo of the user's own typing.
+    private func refreshStreaming(now: ContinuousClock.Instant = .now) {
+        var streaming = false
+        if state.isRunning, let output = pipeline.lastOutputAt, now - output < .milliseconds(1_500) {
+            streaming = lastInputAt.map { now - $0 > .seconds(1) } ?? true
+        }
+        if streaming != isStreamingOutput { isStreamingOutput = streaming }
     }
 
     static func isShell(_ name: String) -> Bool {
@@ -229,10 +277,12 @@ public final class TerminalSession: Identifiable {
         switch mark {
         case "A":
             isAtPrompt = true
+            runningCommand = nil
         case "C":
             isAtPrompt = false
             lastCommand = CommandRecord(startedAt: Date())
         case "D":
+            runningCommand = nil
             let fields = payload.split(separator: ";")
             let code = fields.count > 1 ? Int32(fields[1]) : nil
             if lastCommand?.finishedAt == nil {
@@ -249,6 +299,15 @@ public final class TerminalSession: Identifiable {
         if payload.hasPrefix("HarborShellIntegration=") {
             let value = payload.dropFirst("HarborShellIntegration=".count)
             shellIntegration = value.split(separator: ";").first.map(String.init)
+        } else if payload.hasPrefix("HarborCommand=") {
+            let encoded = payload.dropFirst("HarborCommand=".count)
+            let command = String(encoded).removingPercentEncoding.map { String($0.prefix(200)) }
+            runningCommand = command
+            if let command, !command.isEmpty {
+                lastCommandFromAssistant = command == pendingAssistantCommand
+                lastCommandLine = command
+            }
+            pendingAssistantCommand = nil
         } else if payload.hasPrefix("CurrentDir=") {
             workingDirectory = String(payload.dropFirst("CurrentDir=".count))
         }

@@ -192,7 +192,21 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122, 162, 
 .kind.ssh { color: var(--accent); }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
-.dot.exited, .dot.failed { background: var(--muted); }
+.dot.busy { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.dot.streaming { background: #6fd3e3; animation: pulse 1.4s ease-in-out infinite; }
+.dot.starting { background: var(--muted); animation: pulse 1.4s ease-in-out infinite; }
+.dot.exited { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.dot.failed { background: var(--danger); }
+.item-sub.command { font-family: var(--font-mono); font-size: 11px; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot { animation: none !important; }
+}
 
 .sidebar-footer {
   margin-top: auto;

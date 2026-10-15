@@ -2,109 +2,173 @@ import AppKit
 import HarborCore
 import HarborSessions
 
-/// Presents sessions as native window tabs and reports their visual order.
+/// Presents sessions as tabs in terminal windows, moves tabs between windows, and
+/// reports visual order to automation.
 @MainActor
 final class WindowCoordinator: NSObject, SessionPresenting {
-    private var controllers: [SessionID: TerminalWindowController] = [:]
+    private(set) var controllers: [TerminalWindowController] = []
+    private weak var activeController: TerminalWindowController?
     private let services: AppServices
-    /// Window that new tabs join when there is no key terminal window (e.g. when an
-    /// assistant opens a tab while Settings is frontmost).
-    private weak var lastTerminalWindow: NSWindow?
 
     init(services: AppServices) {
         self.services = services
     }
 
     var hasWindows: Bool { !controllers.isEmpty }
+    var windowCount: Int { controllers.count }
+
+    /// Windows front to back.
+    var controllersInOrder: [TerminalWindowController] {
+        let front = NSApp.orderedWindows.compactMap { $0.windowController as? TerminalWindowController }
+        return front + controllers.filter { controller in !front.contains { $0 === controller } }
+    }
+
+    var keyController: TerminalWindowController? {
+        (NSApp.keyWindow?.windowController as? TerminalWindowController) ?? activeController ?? controllers.last
+    }
 
     // MARK: SessionPresenting
 
     func present(_ session: TerminalSession, placement: SessionPlacement) {
-        let controller = TerminalWindowController(session: session, services: services, coordinator: self)
-        controllers[session.id] = controller
-        guard let window = controller.window else { return }
-
-        if placement == .newTab, let host = targetWindowForNewTab(), host !== window {
-            host.addTabbedWindow(window, ordered: .above)
-        } else if let reference = lastTerminalWindow {
-            window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: reference.frame.minX, y: reference.frame.maxY)))
-        } else {
-            window.center()
+        if placement == .newTab, let target = keyController {
+            target.adopt(session)
+            target.window?.makeKeyAndOrderFront(nil)
+            return
         }
-        window.makeKeyAndOrderFront(nil)
-        lastTerminalWindow = window
+        let reference = keyController
+        let controller = makeController()
+        controller.adopt(session)
+        position(controller, relativeTo: reference)
+        controller.window?.makeKeyAndOrderFront(nil)
     }
 
     func focus(_ session: TerminalSession) {
-        guard let window = controllers[session.id]?.window else { return }
+        guard let controller = controller(for: session), let window = controller.window else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
-        window.tabGroup?.selectedWindow = window
+        controller.select(session)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
 
     func dismiss(_ session: TerminalSession) {
-        controllers[session.id]?.closeWithoutConfirmation()
+        controller(for: session)?.closeTab(session, confirm: false)
     }
 
     func orderedSessionIDs() -> [SessionID] {
-        var ordered: [SessionID] = []
-        var seenGroups = Set<ObjectIdentifier>()
-        for window in NSApp.orderedWindows {
-            guard let controller = window.windowController as? TerminalWindowController else { continue }
-            if let group = window.tabGroup {
-                guard seenGroups.insert(ObjectIdentifier(group)).inserted else { continue }
-                for tab in group.windows {
-                    if let tabController = tab.windowController as? TerminalWindowController { ordered.append(tabController.session.id) }
-                }
-            } else {
-                ordered.append(controller.session.id)
-            }
-        }
-        // Minimised or hidden windows aren't in orderedWindows.
-        let listed = Set(ordered)
-        ordered += controllers.keys.filter { !listed.contains($0) }.sorted { $0.description < $1.description }
-        return ordered
+        controllersInOrder.flatMap { $0.sessions.map(\.id) }
     }
 
     func focusedSessionID() -> SessionID? {
-        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? lastTerminalWindow
-        return (window?.windowController as? TerminalWindowController)?.session.id
+        keyController?.selectedSession?.id
+    }
+
+    // MARK: Lookup
+
+    func controller(for session: TerminalSession) -> TerminalWindowController? {
+        controllers.first { $0.contains(session) }
+    }
+
+    /// Selects a session's tab and returns its window, e.g. to attach a sheet to it.
+    func reveal(_ id: SessionID?) -> NSWindow? {
+        guard let id, let session = services.sessions.session(id), let controller = controller(for: session) else {
+            return NSApp.keyWindow
+        }
+        controller.select(session)
+        return controller.window
+    }
+
+    // MARK: Opening
+
+    /// ⌘T / the strip's “+”: a local shell, in the current folder when configured.
+    func openTab(in controller: TerminalWindowController?) {
+        let target = controller ?? keyController
+        var directory: String?
+        if services.settings.settings.terminal.newTabDirectory == .sameAsCurrent,
+           let session = target?.selectedSession, session.kind == .localShell {
+            directory = session.workingDirectory
+        }
+        if let target { activeController = target }
+        services.sessions.open(.localShell, workingDirectory: directory, placement: hasWindows ? .newTab : .newWindow)
+    }
+
+    func duplicate(_ session: TerminalSession, in controller: TerminalWindowController) {
+        activeController = controller
+        services.sessions.open(session.kind, workingDirectory: session.workingDirectory, placement: .newTab)
+    }
+
+    // MARK: Moving tabs
+
+    /// Reorders within a window, or moves a tab here from another window.
+    func moveSession(_ id: SessionID, to target: TerminalWindowController, before targetID: SessionID?) {
+        guard let session = services.sessions.session(id), let source = controller(for: session) else { return }
+        let before = targetID.flatMap(services.sessions.session)
+        if source === target {
+            target.move(session, before: before)
+            return
+        }
+        guard let container = source.release(session) else { return }
+        let index = before.flatMap { anchor in target.sessions.firstIndex { $0 === anchor } }
+        target.adopt(session, container: container, at: index)
+        target.window?.makeKeyAndOrderFront(nil)
+    }
+
+    func detach(_ session: TerminalSession) {
+        guard let source = controller(for: session), source.sessions.count > 1,
+              let container = source.release(session) else { return }
+        let controller = makeController()
+        controller.adopt(session, container: container)
+        controller.window?.setFrame(source.window?.frame.offsetBy(dx: 28, dy: -28) ?? .zero, display: false)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    func mergeAll(into target: TerminalWindowController) {
+        for source in controllers where source !== target {
+            for session in source.sessions {
+                guard let container = source.release(session) else { continue }
+                target.adopt(session, container: container, select: false)
+            }
+        }
+        target.window?.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: Callbacks from windows
+
+    func didActivate(_ controller: TerminalWindowController) {
+        activeController = controller
+    }
+
+    /// The user closed one tab.
+    func tabWasClosed(_ session: TerminalSession) {
+        services.sessions.windowDidClose(for: session)
+    }
+
+    func windowWillClose(_ controller: TerminalWindowController, sessions: [TerminalSession]) {
+        controllers.removeAll { $0 === controller }
+        if activeController === controller { activeController = controllers.last }
+        sessions.forEach { services.sessions.windowDidClose(for: $0) }
+    }
+
+    func applyAppearance() {
+        controllers.forEach { $0.applyAppearance() }
     }
 
     // MARK: Helpers
 
-    var keyController: TerminalWindowController? {
-        (NSApp.keyWindow?.windowController as? TerminalWindowController)
-            ?? (lastTerminalWindow?.windowController as? TerminalWindowController)
+    private func makeController() -> TerminalWindowController {
+        let controller = TerminalWindowController(services: services, coordinator: self)
+        controllers.append(controller)
+        activeController = controller
+        return controller
     }
 
-    private func targetWindowForNewTab() -> NSWindow? {
-        if let key = NSApp.keyWindow, key.windowController is TerminalWindowController { return key }
-        return lastTerminalWindow ?? controllers.values.first?.window
-    }
-
-    /// ⌘T / the tab bar's “+”: a local shell, in the same folder when configured.
-    func openTab(nextTo controller: TerminalWindowController?) {
-        let source = controller ?? keyController
-        var directory: String?
-        if services.settings.settings.terminal.newTabDirectory == .sameAsCurrent,
-           let session = source?.session, session.kind == .localShell {
-            directory = session.workingDirectory
+    /// Cascades from the previous window, or centres the first one. Call after the
+    /// window has its size.
+    private func position(_ controller: TerminalWindowController, relativeTo reference: TerminalWindowController?) {
+        guard let window = controller.window else { return }
+        if let anchor = reference?.window, anchor !== window {
+            window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: anchor.frame.minX, y: anchor.frame.maxY)))
+        } else {
+            window.center()
         }
-        if let window = source?.window { lastTerminalWindow = window }
-        services.sessions.open(.localShell, workingDirectory: directory, placement: .newTab)
-    }
-
-    func windowDidClose(_ controller: TerminalWindowController) {
-        controllers.removeValue(forKey: controller.session.id)
-        if lastTerminalWindow === controller.window {
-            lastTerminalWindow = controllers.values.compactMap(\.window).first
-        }
-        services.sessions.windowDidClose(for: controller.session)
-    }
-
-    func applyAppearance() {
-        controllers.values.forEach { $0.applyAppearance() }
     }
 }

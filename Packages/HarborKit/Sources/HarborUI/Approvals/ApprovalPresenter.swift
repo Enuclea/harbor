@@ -62,8 +62,7 @@ final class ApprovalPresenter: ApprovalRequesting {
     }
 
     private func window(for sessionID: SessionID?) -> NSWindow? {
-        guard let sessionID else { return NSApp.keyWindow }
-        return NSApp.windows.first { ($0.windowController as? TerminalWindowController)?.session.id == sessionID }
+        windows.reveal(sessionID)
     }
 
     private static func preview(for text: String) -> NSView {

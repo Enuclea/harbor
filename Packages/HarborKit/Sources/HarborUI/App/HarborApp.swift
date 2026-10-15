@@ -58,4 +58,9 @@ final class HarborApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
     }
+
+    /// ⌘W in windows that aren't terminals (Settings, onboarding) closes the window.
+    @objc func closeTab(_ sender: Any?) {
+        NSApp.keyWindow?.performClose(sender)
+    }
 }

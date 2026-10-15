@@ -58,23 +58,3 @@ struct SessionOverlay: View {
         .glassPanel(cornerRadius: 14)
     }
 }
-
-/// A small badge in each native tab: host colour, unseen output, assistant activity.
-struct TabAccessory: View {
-    let session: TerminalSession
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if session.assistantActivityAt.map({ Date().timeIntervalSince($0) < 30 }) == true {
-                Image(systemName: "sparkles").font(.system(size: 9, weight: .semibold)).foregroundStyle(.purple)
-            }
-            if session.hasUnseenActivity {
-                Circle().fill(.secondary).frame(width: 6, height: 6)
-            }
-            if let color = session.kind.host?.color.color {
-                Circle().fill(color).frame(width: 8, height: 8)
-            }
-        }
-        .padding(.trailing, 2)
-    }
-}

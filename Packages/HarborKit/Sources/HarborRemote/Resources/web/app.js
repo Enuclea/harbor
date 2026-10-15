@@ -115,8 +115,11 @@
       const kind = element("span", `kind ${session.kind}`, session.kind === "ssh" ? "ssh" : "›_");
       const label = element("span");
       label.append(element("span", "item-title", session.title));
-      label.append(element("span", "item-sub", session.host || session.workingDirectory || session.state));
-      button.append(kind, label, element("span", `dot ${session.state}`));
+      const detail = session.runningCommand || session.host || session.workingDirectory || session.state;
+      label.append(element("span", session.runningCommand ? "item-sub command" : "item-sub", detail));
+      const dot = element("span", `dot ${session.activity || session.state}`);
+      dot.title = session.activity || session.state;
+      button.append(kind, label, dot);
       button.addEventListener("click", () => select(session.id));
       item.append(button);
       list.append(item);

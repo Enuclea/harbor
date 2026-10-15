@@ -9,7 +9,7 @@ import SwiftUI
 @MainActor
 enum DiagnosisPresenter {
     static func present(for session: TerminalSession, actions: (any AppActions)?) {
-        let window = NSApp.windows.first { ($0.windowController as? TerminalWindowController)?.session === session }
+        let window = NSApp.windows.first { ($0.windowController as? TerminalWindowController)?.contains(session) == true }
         let output = ANSIStripper.plainText(from: session.pipeline.replay.suffix(8_192))
         let findings = FailureAdvisor.diagnose(output: output, host: session.kind.host)
         let model = DiagnosisModel(findings: findings, host: session.kind.host)

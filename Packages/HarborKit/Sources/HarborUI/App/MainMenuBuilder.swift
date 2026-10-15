@@ -10,7 +10,9 @@ enum MainMenuBuilder {
         main.addItem(submenu(appMenu(controller)))
         main.addItem(submenu(shellMenu(controller)))
         main.addItem(submenu(editMenu()))
-        main.addItem(submenu(viewMenu()))
+        let view = viewMenu()
+        view.delegate = controller
+        main.addItem(submenu(view))
         let window = windowMenu()
         main.addItem(submenu(window))
         let help = helpMenu(controller)
@@ -57,8 +59,8 @@ enum MainMenuBuilder {
         menu.addItem(.separator())
         menu.addItem(item("Secure Keyboard Entry", #selector(HarborAppController.toggleSecureKeyboardEntry(_:)), target: controller))
         menu.addItem(.separator())
-        menu.addItem(item("Close Tab", #selector(NSWindow.performClose(_:)), "w"))
-        menu.addItem(item("Close Window", #selector(HarborAppController.closeWindowGroup(_:)), "w", modifiers: [.command, .shift], target: controller))
+        menu.addItem(item("Close Tab", #selector(TerminalWindowController.closeTab(_:)), "w"))
+        menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w", modifiers: [.command, .shift]))
         return menu
     }
 
@@ -97,9 +99,6 @@ enum MainMenuBuilder {
         menu.addItem(item("Jump to Previous Prompt", #selector(TerminalWindowController.jumpToPreviousPrompt(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!)))
         menu.addItem(item("Jump to Next Prompt", #selector(TerminalWindowController.jumpToNextPrompt(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!)))
         menu.addItem(.separator())
-        menu.addItem(item("Show Tab Bar", #selector(NSWindow.toggleTabBar(_:)), "t", modifiers: [.command, .shift]))
-        menu.addItem(item("Show All Tabs", #selector(NSWindow.toggleTabOverview(_:)), "\\", modifiers: [.command, .shift]))
-        menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", modifiers: [.command, .control]))
         return menu
     }
@@ -109,13 +108,15 @@ enum MainMenuBuilder {
         menu.addItem(item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         menu.addItem(item("Zoom", #selector(NSWindow.performZoom(_:))))
         menu.addItem(.separator())
-        menu.addItem(item("Show Previous Tab", #selector(NSWindow.selectPreviousTab(_:)), "[", modifiers: [.command, .shift]))
-        menu.addItem(item("Show Next Tab", #selector(NSWindow.selectNextTab(_:)), "]", modifiers: [.command, .shift]))
-        menu.addItem(item("Move Tab to New Window", #selector(NSWindow.moveTabToNewWindow(_:))))
-        menu.addItem(item("Merge All Windows", #selector(NSWindow.mergeAllWindows(_:))))
+        menu.addItem(item("Show Previous Tab", #selector(TerminalWindowController.showPreviousTab(_:)), "[", modifiers: [.command, .shift]))
+        menu.addItem(item("Show Next Tab", #selector(TerminalWindowController.showNextTab(_:)), "]", modifiers: [.command, .shift]))
+        menu.addItem(alternate(item("Show Previous Tab", #selector(TerminalWindowController.showPreviousTab(_:)), "\t", modifiers: [.control, .shift])))
+        menu.addItem(alternate(item("Show Next Tab", #selector(TerminalWindowController.showNextTab(_:)), "\t", modifiers: [.control])))
+        menu.addItem(item("Move Tab to New Window", #selector(TerminalWindowController.detachTab(_:))))
+        menu.addItem(item("Merge All Windows", #selector(TerminalWindowController.mergeAllTerminalWindows(_:))))
         menu.addItem(.separator())
         for number in 1...9 {
-            let tab = item("Tab \(number)", #selector(TerminalWindowController.selectTabByNumber(_:)), "\(number)")
+            let tab = item(number == 9 ? "Last Tab" : "Tab \(number)", #selector(TerminalWindowController.selectTabByNumber(_:)), "\(number)")
             tab.tag = number
             menu.addItem(tab)
         }

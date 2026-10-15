@@ -8,8 +8,12 @@ assistants can work in your tabs, and secure access to all of it from a browser.
 
 ## Features
 
-**Terminal** — native window tabs (drag out, merge, Show All Tabs), GPU (Metal) rendering via
-SwiftTerm, 14 themes, translucent and blurred backgrounds, font zoom, cursor styles,
+**Tabs** — a two-line tab strip in the title bar. Line 1 is where (`user@host`, or the folder);
+line 2 is what's running or last ran, with elapsed time. A live indicator shows idle, running,
+streaming output, new output, bell, exited or failed; ✦ marks tabs and commands driven by an AI
+assistant. Drag to reorder or between windows; ⌘1–9, ⌃Tab, Move to New Window, Merge All Windows.
+
+**Terminal** — GPU (Metal) rendering via SwiftTerm, 14 themes, translucent and blurred backgrounds, font zoom, cursor styles,
 Option-as-Meta, Find, Clear Scrollback, jump between prompts (⌘↑/⌘↓), new tabs in the same
 folder, proxy icon, close confirmation for running jobs, Secure Keyboard Entry, drop files to
 type their paths, Export Text, `ssh://` links, folders opened with Harbor, OSC 8 links,

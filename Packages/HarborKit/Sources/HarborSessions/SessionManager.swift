@@ -134,7 +134,7 @@ public final class SessionManager {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.sessions.forEach { $0.refreshProcessInfo() }
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .milliseconds(750))
             }
         }
     }

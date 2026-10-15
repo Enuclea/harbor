@@ -44,6 +44,7 @@ struct ShellIntegrationTests {
         #expect(text.contains("\u{1b}]133;A"))
         #expect(text.contains("\u{1b}]133;C"))
         #expect(text.contains("\u{1b}]133;D;1"), "exit status of `false` should be reported")
+        #expect(text.contains("\u{1b}]1337;HarborCommand=false\u{07}"), "the running command should be reported")
         #expect(text.contains("❯"), "Harbor prompt should be active")
     }
 }

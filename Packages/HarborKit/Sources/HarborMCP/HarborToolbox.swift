@@ -24,7 +24,7 @@ public struct HarborToolbox: Sendable {
         [
             MCPTool(
                 name: "list_tabs", title: "List tabs",
-                description: "List every open terminal tab with its index, title, kind (local/ssh), host, working directory, foreground process and whether it is at a shell prompt.",
+                description: "List every open terminal tab with its index, title, kind (local/ssh), host, working directory, foreground process, activity (idle, busy, streaming, exited…) and the command it is running.",
                 inputSchema: Schema.object([:]), annotations: read
             ) { _, _ in .json(await control.listSessions()) },
 

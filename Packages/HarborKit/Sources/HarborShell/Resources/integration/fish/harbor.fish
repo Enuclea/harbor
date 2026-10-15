@@ -13,6 +13,7 @@ function __harbor_on_prompt --on-event fish_prompt
 end
 
 function __harbor_on_preexec --on-event fish_preexec
+    printf '\e]1337;HarborCommand=%s\a' (string escape --style=url -- (string sub --length 200 -- "$argv[1]"))
     printf '\e]133;C\a'
 end
 
@@ -24,4 +25,4 @@ if set -q HARBOR_PROMPT_FILE; and test -r "$HARBOR_PROMPT_FILE"
     source "$HARBOR_PROMPT_FILE"
 end
 
-printf '\e]1337;HarborShellIntegration=fish;version=1\a'
+printf '\e]1337;HarborShellIntegration=fish;version=2\a'

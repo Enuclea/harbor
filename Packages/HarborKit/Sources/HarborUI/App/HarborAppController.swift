@@ -17,7 +17,7 @@ public protocol UpdateChecking: AnyObject {
 
 /// The composition root: creates services, connects them, and owns app-level windows.
 @MainActor
-public final class HarborAppController: NSObject, AppActions, NSMenuItemValidation {
+public final class HarborAppController: NSObject, AppActions, NSMenuItemValidation, NSMenuDelegate {
     let services: AppServices
     let windows: WindowCoordinator
     weak var updater: (any UpdateChecking)?
@@ -80,9 +80,7 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
 
     func willTerminate() {
         if services.settings.settings.terminal.restoreSessionsOnLaunch {
-            let order = windows.orderedSessionIDs()
-            let sessions = order.compactMap(services.sessions.session)
-            SessionRestorer(paths: services.paths).save(sessions)
+            SessionRestorer(paths: services.paths).save(windows: windows.controllersInOrder.map(\.sessions))
         } else {
             SessionRestorer(paths: services.paths).clear()
         }
@@ -231,8 +229,11 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     private func restoreOrOpenFirstTab() {
         let snapshots = services.settings.settings.terminal.restoreSessionsOnLaunch ? SessionRestorer(paths: services.paths).load() : []
         var opened = 0
+        var currentWindow: Int?
         for snapshot in snapshots {
-            let placement: SessionPlacement = opened == 0 ? .newWindow : .newTab
+            let startsWindow = opened == 0 || snapshot.windowIndex != currentWindow
+            currentWindow = snapshot.windowIndex
+            let placement: SessionPlacement = startsWindow ? .newWindow : .newTab
             let session: TerminalSession?
             switch snapshot.kind {
             case .local:
@@ -303,12 +304,7 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     }
 
     @objc func newTab(_ sender: Any?) {
-        windows.openTab(nextTo: windows.keyController)
-    }
-
-    @objc func closeWindowGroup(_ sender: Any?) {
-        guard let window = NSApp.keyWindow else { return }
-        (window.tabGroup?.windows ?? [window]).forEach { $0.performClose(nil) }
+        windows.openTab(in: windows.keyController)
     }
 
     @objc func connectFromMenu(_ sender: NSMenuItem) {
@@ -335,11 +331,19 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
             return true
         case #selector(checkForUpdates(_:)):
             return updater?.canCheckForUpdates ?? false
-        case #selector(closeWindowGroup(_:)):
-            return NSApp.keyWindow != nil
         default:
             return true
         }
+    }
+
+    /// Terminal windows use an empty toolbar only for its taller title bar, so drop the
+    /// toolbar items AppKit adds to the View menu automatically.
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        let toolbarActions: Set<Selector> = [#selector(NSWindow.toggleToolbarShown(_:)), #selector(NSWindow.runToolbarCustomizationPalette(_:))]
+        for item in menu.items where item.action.map(toolbarActions.contains) == true {
+            menu.removeItem(item)
+        }
+        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
     }
 
     // MARK: Helpers

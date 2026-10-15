@@ -14,7 +14,6 @@ final class TerminalContainerView: NSView {
     let binding: TerminalSessionBinding
     private let session: TerminalSession
     private let services: AppServices
-    private let effectView = NSVisualEffectView()
     private let overlayHost: NSHostingView<SessionOverlay>
     private var flyoutHost: NSView?
     private var flyoutModel: FileBrowserModel?
@@ -51,12 +50,6 @@ final class TerminalContainerView: NSView {
     // MARK: Layout
 
     private func layout(settings: AppSettings) {
-        effectView.blendingMode = .behindWindow
-        effectView.material = .underWindowBackground
-        effectView.state = .active
-        effectView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(effectView)
-
         terminal.translatesAutoresizingMaskIntoConstraints = false
         addSubview(terminal)
 
@@ -68,14 +61,10 @@ final class TerminalContainerView: NSView {
         paddingConstraints = [
             terminal.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padding),
             terminal.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -max(2, padding - 4)),
-            terminal.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: max(2, padding / 2)),
+            terminal.topAnchor.constraint(equalTo: topAnchor, constant: max(2, padding / 2)),
             terminal.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -max(2, padding / 2)),
         ]
         NSLayoutConstraint.activate(paddingConstraints + [
-            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            effectView.topAnchor.constraint(equalTo: topAnchor),
-            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
             overlayHost.centerXAnchor.constraint(equalTo: centerXAnchor),
             overlayHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -18),
             overlayHost.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
@@ -86,7 +75,7 @@ final class TerminalContainerView: NSView {
     var preferredContentSize: NSSize {
         let optimal = terminal.getOptimalFrameSize().size
         let padding = CGFloat(services.settings.settings.appearance.contentPadding)
-        return NSSize(width: optimal.width + padding * 2, height: optimal.height + padding + 28)
+        return NSSize(width: optimal.width + padding * 2, height: optimal.height + padding)
     }
 
     // MARK: Appearance
@@ -95,15 +84,9 @@ final class TerminalContainerView: NSView {
         let settings = services.settings.settings
         let theme = services.theme(for: session)
         TerminalAppearance.apply(settings, theme: theme, sizeDelta: fontSizeDelta, to: terminal)
+        // Window-level background, blur and appearance belong to the window's root view.
         let translucent = settings.appearance.backgroundOpacity < 0.999
-        effectView.isHidden = !(translucent && settings.appearance.backgroundBlur)
-        effectView.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
         layer?.backgroundColor = translucent ? NSColor.clear.cgColor : theme.background.nsColor.cgColor
-        if let window {
-            window.isOpaque = !translucent
-            window.backgroundColor = translucent ? .clear : theme.background.nsColor
-            window.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
-        }
         let padding = CGFloat(settings.appearance.contentPadding)
         paddingConstraints[0].constant = padding
         paddingConstraints[1].constant = -max(2, padding - 4)
@@ -162,7 +145,7 @@ final class TerminalContainerView: NSView {
         NSLayoutConstraint.activate([
             trailing,
             host.widthAnchor.constraint(equalToConstant: Self.flyoutWidth),
-            host.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 6),
+            host.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             host.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
         ])
         flyoutHost = host

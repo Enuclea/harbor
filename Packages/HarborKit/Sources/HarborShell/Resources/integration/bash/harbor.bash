@@ -51,4 +51,4 @@ else
   PROMPT_COMMAND="_harbor_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
 
-printf '\e]1337;HarborShellIntegration=bash;version=1\a'
+printf '\e]1337;HarborShellIntegration=bash;version=2\a'

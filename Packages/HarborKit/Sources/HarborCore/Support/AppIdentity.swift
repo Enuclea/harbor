@@ -10,7 +10,7 @@ public enum AppIdentity {
 
     /// Version of the bundled shell-integration scripts. Bump when the scripts change so
     /// installed copies are refreshed and Doctor can flag stale shells.
-    public static let shellIntegrationVersion = 1
+    public static let shellIntegrationVersion = 2
 
     /// The running app's identifier, or the default when running outside an app bundle
     /// (the `harbor-mcp` bridge, `swift test`).

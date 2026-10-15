@@ -68,6 +68,9 @@ public final class SessionControlService: TerminalControlling, TerminalStreaming
         guard session.state.isRunning else { throw ControlError.sessionNotRunning }
         try await authorize(.sendInput, client: client, session: session, detail: text)
         session.noteAssistantActivity()
+        if text.hasSuffix("\r"), text.filter({ $0 == "\r" || $0 == "\n" }).count == 1 {
+            session.noteSubmittedCommand(String(text.dropLast()), fromAssistant: client.kind == .assistant)
+        }
         session.send(text: text)
         record(client, "send_input", session, detail: text, .allowed)
     }
@@ -95,6 +98,7 @@ public final class SessionControlService: TerminalControlling, TerminalStreaming
         }
         try await authorize(.sendInput, client: client, session: session, detail: command)
         session.noteAssistantActivity()
+        session.noteSubmittedCommand(command, fromAssistant: client.kind == .assistant)
         let outcome = await session.run(command, timeout: timeout)
         record(client, "run_command", session, detail: command, .allowed)
         return outcome
@@ -235,7 +239,8 @@ public final class SessionControlService: TerminalControlling, TerminalStreaming
             foregroundProcess: session.foregroundProcessName, state: session.state.label, exitCode: exitCode,
             isFocused: (focused ?? manager.presenter?.focusedSessionID()) == session.id,
             columns: session.size.columns, rows: session.size.rows, shellIntegration: session.shellIntegration,
-            isAtPrompt: session.isAtPrompt, lastCommandExitCode: session.lastCommand?.exitCode)
+            isAtPrompt: session.isAtPrompt, lastCommandExitCode: session.lastCommand?.exitCode,
+            activity: session.activity.name, runningCommand: session.runningCommand)
     }
 
     private func fallbackSnapshot(_ session: TerminalSession, scrollbackLines: Int) -> ScreenSnapshot {
