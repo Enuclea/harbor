@@ -1,0 +1,15 @@
+// Copy to Config/Local.xcconfig (git-ignored) and fill in.
+
+// Your 10-character Team ID from https://developer.apple.com/account (Membership details).
+HARBOR_DEVELOPMENT_TEAM = ABCDE12345
+
+// Optional: sign Debug builds with your Apple Development certificate instead of ad-hoc.
+// CODE_SIGN_IDENTITY = Apple Development
+// DEVELOPMENT_TEAM = $(HARBOR_DEVELOPMENT_TEAM)
+
+// Optional: your own bundle identifier.
+// HARBOR_BUNDLE_ID = com.yourcompany.harbor
+
+// Optional: Sparkle update feed and EdDSA public key (from Sparkle's generate_keys).
+// HARBOR_APPCAST_URL = https:/$()/updates.example.com/harbor/appcast.xml
+// HARBOR_SPARKLE_PUBLIC_KEY = ...

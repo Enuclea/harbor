@@ -1,0 +1,12 @@
+#include "Base.xcconfig"
+
+// Debug builds are ad-hoc signed so they run without an Apple Developer account.
+// Local.xcconfig can override these with your team for Apple Development signing.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+ONLY_ACTIVE_ARCH = YES
+
+#include? "Local.xcconfig"

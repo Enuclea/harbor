@@ -1,0 +1,16 @@
+# Build output
+/build/
+DerivedData/
+.build/
+*.xcodeproj/
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Local signing and secrets
+Config/Local.xcconfig
+*.p12
+*.cer
+notarization.env
+
+# macOS
+.DS_Store
+.swiftpm/

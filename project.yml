@@ -1,0 +1,74 @@
+# XcodeGen spec — `make project` (or `xcodegen generate`) creates Harbor.xcodeproj.
+# The generated project is not committed; this file is the source of truth.
+name: Harbor
+options:
+  bundleIdPrefix: dev.harbor
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+
+packages:
+  HarborKit:
+    path: Packages/HarborKit
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.9.0
+
+targets:
+  Harbor:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        INFOPLIST_FILE: App/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Harbor.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: $(HARBOR_BUNDLE_ID)
+        GENERATE_INFOPLIST_FILE: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+    dependencies:
+      - package: HarborKit
+        product: HarborUI
+      - package: Sparkle
+        product: Sparkle
+      - target: harbor-mcp
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+
+  harbor-mcp:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Packages/HarborKit/Sources/HarborMCPBridge
+    settings:
+      base:
+        PRODUCT_NAME: harbor-mcp
+        PRODUCT_BUNDLE_IDENTIFIER: $(HARBOR_BUNDLE_ID).mcp
+        CODE_SIGN_ENTITLEMENTS: App/harbor-mcp.entitlements
+        SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - package: HarborKit
+        product: HarborCore
+
+schemes:
+  Harbor:
+    build:
+      targets:
+        Harbor: all
+    run:
+      config: Debug
+    archive:
+      config: Release

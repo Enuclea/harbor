@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>A native terminal for SSH, files and AI assistants.</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+
+	<!-- ssh:// links open in a new tab; harbor:// deep links (harbor://connect/<host>). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>SSH connection</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ssh</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Harbor link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>harbor</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+	</array>
+
+	<!-- Folders dropped on the Dock icon (or `open -a Harbor <folder>`) open a tab there. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Programs run inside Harbor are attributed to it by macOS privacy controls. -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>A program running in Harbor wants to access your Desktop folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>A program running in Harbor wants to access your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>A program running in Harbor wants to access your Downloads folder.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>A program running in Harbor wants to access a removable volume.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>A program running in Harbor wants to access a network volume.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Harbor connects to SSH servers and other devices on your local network when you ask it to.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A script running in Harbor wants to control another app.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running in Harbor wants to use the camera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running in Harbor wants to use the microphone.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running in Harbor wants to use Bluetooth.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running in Harbor wants to access your contacts.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running in Harbor wants to access your calendars.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running in Harbor wants to access your reminders.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running in Harbor wants to access your photos.</string>
+
+	<!-- Sparkle (empty values disable update checks). -->
+	<key>SUFeedURL</key>
+	<string>$(HARBOR_APPCAST_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(HARBOR_SPARKLE_PUBLIC_KEY)</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+</dict>
+</plist>

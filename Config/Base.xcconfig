@@ -1,0 +1,28 @@
+// Harbor — shared build settings.
+//
+// Product identity lives here. To sign with your Apple Developer account, copy
+// Config/Local.xcconfig.example to Config/Local.xcconfig and set your Team ID there
+// (Local.xcconfig is git-ignored).
+
+HARBOR_PRODUCT_NAME = Harbor
+HARBOR_BUNDLE_ID = dev.harbor.Harbor
+HARBOR_DEVELOPMENT_TEAM =
+
+// Sparkle auto-updates: set both to enable "Check for Updates…".
+HARBOR_APPCAST_URL =
+HARBOR_SPARKLE_PUBLIC_KEY =
+
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+PRODUCT_NAME = $(HARBOR_PRODUCT_NAME)
+MACOSX_DEPLOYMENT_TARGET = 14.0
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+ENABLE_HARDENED_RUNTIME = YES
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+DEAD_CODE_STRIPPING = YES
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.developer-tools
+
+#include? "Local.xcconfig"

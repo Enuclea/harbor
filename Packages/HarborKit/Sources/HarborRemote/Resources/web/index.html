@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <title>Harbor</title>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/vendor/xterm.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main id="login" class="login" hidden>
+    <form id="login-form" class="login-card" autocomplete="off">
+      <img src="/assets/icon.svg" alt="" class="login-mark" width="56" height="56">
+      <h1>Harbor</h1>
+      <p class="muted">Paste the access token from Harbor ▸ Settings ▸ Remote Access, or open the pairing link.</p>
+      <label class="visually-hidden" for="token">Access token</label>
+      <input id="token" name="token" type="password" placeholder="Access token" spellcheck="false" autocapitalize="off" required>
+      <button type="submit" class="primary">Sign in</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <div id="app" class="app" hidden>
+    <aside class="sidebar" id="sidebar">
+      <header class="brand">
+        <img src="/assets/icon.svg" alt="" width="22" height="22">
+        <span>Harbor</span>
+        <span id="readonly-badge" class="badge" hidden>Read-only</span>
+      </header>
+
+      <section>
+        <div class="section-title">
+          <span>Tabs</span>
+          <button id="new-tab" class="icon-button" title="New local tab" aria-label="New local tab">＋</button>
+        </div>
+        <ul id="tab-list" class="list" aria-label="Open tabs"></ul>
+      </section>
+
+      <section>
+        <div class="section-title"><span>Hosts</span></div>
+        <input id="host-filter" class="filter" type="search" placeholder="Filter hosts" aria-label="Filter hosts">
+        <ul id="host-list" class="list" aria-label="Saved hosts"></ul>
+      </section>
+
+      <footer class="sidebar-footer">
+        <span id="connection" class="status-dot" aria-live="polite">Connecting…</span>
+        <button id="sign-out" class="link-button">Sign out</button>
+      </footer>
+    </aside>
+
+    <section class="workspace">
+      <header class="toolbar">
+        <button id="toggle-sidebar" class="icon-button mobile-only" aria-label="Show tabs">☰</button>
+        <div class="toolbar-title">
+          <strong id="tab-title">No tab selected</strong>
+          <span id="tab-subtitle" class="muted"></span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="focus-on-mac" class="secondary" disabled>Show on Mac</button>
+          <button id="close-tab" class="secondary danger" disabled>Close</button>
+        </div>
+      </header>
+      <div id="terminal" class="terminal" aria-label="Terminal"></div>
+      <div id="empty" class="empty">
+        <p>Choose a tab, open a new one, or connect to a host.</p>
+      </div>
+      <div id="banner" class="banner" hidden></div>
+    </section>
+  </div>
+
+  <script src="/assets/vendor/xterm.js"></script>
+  <script src="/assets/vendor/addon-fit.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

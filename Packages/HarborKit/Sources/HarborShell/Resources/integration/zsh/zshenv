@@ -1,0 +1,29 @@
+# Harbor shell integration — zsh bootstrap.
+#
+# Harbor points ZDOTDIR at this directory so this file runs first. It restores your
+# own ZDOTDIR, loads your .zshenv exactly as zsh would, and defers Harbor's hooks
+# until the first prompt so they run after your .zshrc. Your dotfiles are not modified.
+# Installed as .zshenv by Harbor.
+
+if [[ -n "${HARBOR_ORIG_ZDOTDIR+set}" ]]; then
+  ZDOTDIR="$HARBOR_ORIG_ZDOTDIR"
+  unset HARBOR_ORIG_ZDOTDIR
+else
+  unset ZDOTDIR
+fi
+
+if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then
+  builtin source "${ZDOTDIR:-$HOME}/.zshenv"
+fi
+
+if [[ -o interactive && -r "${HARBOR_SHELL_INTEGRATION_DIR-}/zsh/harbor.zsh" ]]; then
+  _harbor_deferred_init() {
+    precmd_functions=(${precmd_functions:#_harbor_deferred_init})
+    builtin unfunction _harbor_deferred_init
+    builtin source "$HARBOR_SHELL_INTEGRATION_DIR/zsh/harbor.zsh"
+    _harbor_precmd
+    _harbor_mark_prompt_end
+  }
+  typeset -ga precmd_functions
+  precmd_functions+=(_harbor_deferred_init)
+fi
