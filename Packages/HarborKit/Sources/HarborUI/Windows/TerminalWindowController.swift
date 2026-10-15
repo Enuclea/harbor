@@ -36,6 +36,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         window.minSize = NSSize(width: 420, height: 240)
         window.collectionBehavior.insert(.fullScreenPrimary)
         super.init(window: window)
+        model.hosts = services.hosts
         root = TerminalWindowRootView(model: model, actions: makeActions())
         window.contentView = root
         window.delegate = self
@@ -132,7 +133,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         }
         select(session)
         let alert = NSAlert()
-        alert.messageText = "Close “\(TabItemState.firstLine(for: session))”?"
+        alert.messageText = "Close “\(displayName(session))”?"
         alert.informativeText = "Closing it will end \(session.foregroundProcessName ?? (session.kind.host != nil ? "the SSH connection" : "what's running"))."
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
@@ -152,7 +153,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
     private func updateWindowTitle() {
         guard let window, let session = selectedSession else { return }
         // The title isn't drawn (tabs are), but Mission Control and the Window menu use it.
-        window.title = TabItemState.firstLine(for: session)
+        window.title = displayName(session)
         window.subtitle = session.lastCommandLine ?? ""
         if session.kind == .localShell, let directory = session.workingDirectory {
             window.representedURL = URL(fileURLWithPath: directory)
@@ -212,7 +213,31 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
                 guard let self else { return }
                 self.coordinator?.moveSession(id, to: self, before: target)
             },
-            installIntegration: { [weak self] id in self?.session(id).map { self?.installIntegration(for: $0) } })
+            installIntegration: { [weak self] id in self?.session(id).map { self?.installIntegration(for: $0) } },
+            editHost: { [weak self] id in self?.session(id).map { self?.presentHostEditor(for: $0) } })
+    }
+
+    /// The tab's name as shown on the strip (using the saved host's current details).
+    private func displayName(_ session: TerminalSession) -> String {
+        TabItemState.firstLine(for: session, host: session.kind.host.flatMap { services.hosts.host(id: $0.id) })
+    }
+
+    /// Saves an SSH tab's destination as a host (keeping its id, so restore and shell
+    /// integration recognise the open tab immediately), or edits the saved host.
+    private func presentHostEditor(for session: TerminalSession) {
+        guard let original = session.kind.host, let window else { return }
+        let saved = services.hosts.host(id: original.id)
+        let library = services.hosts
+        let dismiss = { [weak window] in
+            if let sheet = window?.attachedSheet { window?.endSheet(sheet) }
+        }
+        let editor = HostEditorView(host: saved ?? original, isNew: saved == nil, services: services) { host in
+            library.upsert(host)
+            dismiss()
+        } cancel: {
+            dismiss()
+        }
+        window.beginSheet(NSWindow(contentViewController: NSHostingController(rootView: editor)))
     }
 
     /// Installs shell integration on an SSH tab's host, then offers a fresh tab that uses it.
@@ -246,7 +271,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         alert.messageText = "Rename Tab"
         alert.informativeText = "Leave empty to use the automatic title."
         let field = NSTextField(string: session.customTitle ?? "")
-        field.placeholderString = TabItemState.firstLine(for: session)
+        field.placeholderString = displayName(session)
         field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = field
         alert.addButton(withTitle: "Rename")
@@ -280,7 +305,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         }
         let alert = NSAlert()
         alert.messageText = model.sessions.count == 1 ? "Close this window?" : "Close \(model.sessions.count) tabs?"
-        alert.informativeText = "\(busy.map { TabItemState.firstLine(for: $0) }.prefix(4).joined(separator: ", ")) \(busy.count == 1 ? "is" : "are") still running."
+        alert.informativeText = "\(busy.map { displayName($0) }.prefix(4).joined(separator: ", ")) \(busy.count == 1 ? "is" : "are") still running."
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: sender) { [weak self] response in
@@ -351,7 +376,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         guard let window, let session = selectedSession, let container = selectedContainer else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "\(TabItemState.firstLine(for: session)).txt"
+        panel.nameFieldStringValue = "\(displayName(session)).txt"
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
             do {

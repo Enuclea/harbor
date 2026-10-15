@@ -11,12 +11,17 @@ import UniformTypeIdentifiers
 final class WindowTabsModel {
     var sessions: [TerminalSession] = []
     var selectedID: SessionID?
+    /// The host library, so tabs show saved hosts' current names and colours.
+    @ObservationIgnored weak var hosts: HostLibrary?
     /// Room left for the window buttons.
     var leadingInset: CGFloat = 80
     var isDark = true
 
     var items: [TabItemState] {
-        sessions.map { TabItemState(session: $0, isSelected: $0.id == selectedID) }
+        sessions.map { session in
+            let saved = session.kind.host.flatMap { hosts?.host(id: $0.id) }
+            return TabItemState(session: session, isSelected: session.id == selectedID, savedHost: saved)
+        }
     }
 }
 
@@ -33,6 +38,8 @@ struct TabStripActions: Sendable {
     /// Moves a tab (possibly from another window) before `target`, or to the end when nil.
     var move: @MainActor @Sendable (_ id: SessionID, _ target: SessionID?) -> Void = { _, _ in }
     var installIntegration: @MainActor @Sendable (SessionID) -> Void = { _ in }
+    /// Opens the host editor: “Save as Host…” for unsaved destinations, “Edit Host…” otherwise.
+    var editHost: @MainActor @Sendable (SessionID) -> Void = { _ in }
 }
 
 /// Live binding of the strip to a window's model.
@@ -153,6 +160,9 @@ struct TabItemView: View {
         Button("Duplicate Tab") { actions.duplicate(item.id) }
         if item.status == .exited || item.status == .failed {
             Button("Reconnect / Restart") { actions.reconnect(item.id) }
+        }
+        if let saved = item.hostSaved {
+            Button(saved ? "Edit Host…" : "Save as Host…") { actions.editHost(item.id) }
         }
         if item.offersIntegrationInstall {
             Button("Install Shell Integration on This Host…") { actions.installIntegration(item.id) }

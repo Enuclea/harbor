@@ -56,11 +56,13 @@ struct TabItemState: Identifiable, Equatable {
     let tooltip: String
     /// An SSH tab whose host isn't reporting through shell integration yet.
     let offersIntegrationInstall: Bool
+    /// For SSH tabs: whether the destination is in the host library (nil for local tabs).
+    let hostSaved: Bool?
 
     init(id: SessionID, title: String, subtitle: String? = nil, subtitleIsCommand: Bool = false,
          failedExitCode: Int32? = nil, commandByAssistant: Bool = false, status: TabStatus, hostColor: HostColor = .none,
          isSelected: Bool, assistantActive: Bool = false, busySince: Date? = nil, tooltip: String = "",
-         offersIntegrationInstall: Bool = false) {
+         offersIntegrationInstall: Bool = false, hostSaved: Bool? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -74,16 +76,19 @@ struct TabItemState: Identifiable, Equatable {
         self.busySince = busySince
         self.tooltip = tooltip.isEmpty ? [title, subtitle].compactMap { $0 }.joined(separator: "\n") : tooltip
         self.offersIntegrationInstall = offersIntegrationInstall
+        self.hostSaved = hostSaved
     }
 
+    /// - Parameter savedHost: The library's current copy of the tab's host, so edits (name,
+    ///   colour) show without reconnecting. Nil when the destination isn't saved.
     @MainActor
-    init(session: TerminalSession, isSelected: Bool, now: Date = Date()) {
+    init(session: TerminalSession, isSelected: Bool, savedHost: HostProfile? = nil, now: Date = Date()) {
         let activity = session.activity
         let status = Self.status(for: session, activity: activity, isSelected: isSelected)
         let busySince: Date? = if case .busy(let since, _) = activity { since } else { nil }
-        let line = Self.secondLine(for: session, activity: activity)
+        let line = Self.secondLine(for: session, host: savedHost, activity: activity)
         let assistantActive = session.assistantActivityAt.map { now.timeIntervalSince($0) < 30 } ?? false
-        let title = Self.firstLine(for: session)
+        let title = Self.firstLine(for: session, host: savedHost)
 
         var tooltip = [title]
         if case .ssh(let host) = session.kind { tooltip.append("SSH · \(host.destinationLabel)") }
@@ -96,9 +101,10 @@ struct TabItemState: Identifiable, Equatable {
         self.init(
             id: session.id, title: title, subtitle: line.text, subtitleIsCommand: line.isCommand,
             failedExitCode: line.failedExitCode, commandByAssistant: line.byAssistant, status: status,
-            hostColor: session.kind.host?.color ?? .none, isSelected: isSelected, assistantActive: assistantActive,
+            hostColor: (savedHost ?? session.kind.host)?.color ?? .none, isSelected: isSelected, assistantActive: assistantActive,
             busySince: busySince, tooltip: tooltip.joined(separator: "\n"),
-            offersIntegrationInstall: session.kind.host != nil && session.shellIntegration == nil && session.state.isRunning)
+            offersIntegrationInstall: session.kind.host != nil && session.shellIntegration == nil && session.state.isRunning,
+            hostSaved: session.kind.host == nil ? nil : savedHost != nil)
     }
 
     // MARK: Derivation
@@ -124,12 +130,14 @@ struct TabItemState: Identifiable, Equatable {
         }
     }
 
-    /// `user@host` for SSH, the folder (or custom title) for local tabs.
+    /// `user@host` for SSH, the folder (or custom title) for local tabs. `host` overrides
+    /// the session's copy of its host (pass the library's current version).
     @MainActor
-    static func firstLine(for session: TerminalSession) -> String {
+    static func firstLine(for session: TerminalSession, host override: HostProfile? = nil) -> String {
         if let custom = session.customTitle, !custom.isEmpty { return custom }
         switch session.kind {
-        case .ssh(let host):
+        case .ssh(let original):
+            let host = override ?? original
             if let user = host.user, !user.isEmpty { return "\(user)@\(host.hostname)" }
             if let program = session.programTitle, let destination = userAtHost(in: program) { return destination }
             return host.name
@@ -148,7 +156,7 @@ struct TabItemState: Identifiable, Equatable {
     }
 
     @MainActor
-    private static func secondLine(for session: TerminalSession, activity: SessionActivity) -> SecondLine {
+    private static func secondLine(for session: TerminalSession, host override: HostProfile?, activity: SessionActivity) -> SecondLine {
         switch activity {
         case .exited(let termination):
             return SecondLine(text: termination.isClean ? "Process completed" : "Process \(termination)")
@@ -165,13 +173,14 @@ struct TabItemState: Identifiable, Equatable {
             return SecondLine(text: last, isCommand: true, failedExitCode: code, byAssistant: session.lastCommandFromAssistant)
         }
         switch session.kind {
-        case .ssh(let host):
+        case .ssh(let original):
+            let host = override ?? original
             if case .starting = activity { return SecondLine(text: "Connecting…") }
             if let program = session.programTitle, let colon = program.firstIndex(of: ":") {
                 let path = program[program.index(after: colon)...].trimmingCharacters(in: .whitespaces)
                 if !path.isEmpty { return SecondLine(text: path) }
             }
-            return SecondLine(text: host.name == firstLine(for: session) ? host.destinationLabel : host.name)
+            return SecondLine(text: host.name == firstLine(for: session, host: host) ? host.destinationLabel : host.name)
         case .localShell:
             if case .busy(_, let process?) = activity { return SecondLine(text: process, isCommand: true) }
             return SecondLine(text: session.workingDirectory.map { ($0 as NSString).abbreviatingWithTildeInPath })
