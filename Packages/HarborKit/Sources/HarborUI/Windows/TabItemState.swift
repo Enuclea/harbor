@@ -31,6 +31,14 @@ enum TabStatus: Equatable {
     }
 }
 
+/// Shell integration the tab's context menu offers to put on an SSH host.
+enum IntegrationOffer: Equatable {
+    /// The host isn't reporting through shell integration.
+    case install
+    /// The host runs an older version of it.
+    case update
+}
+
 /// A value snapshot of one tab, so the strip renders from plain data (and can be
 /// previewed or snapshot-tested without live sessions).
 ///
@@ -54,15 +62,14 @@ struct TabItemState: Identifiable, Equatable {
     /// When the running command started, for the elapsed-time label.
     let busySince: Date?
     let tooltip: String
-    /// An SSH tab whose host isn't reporting through shell integration yet.
-    let offersIntegrationInstall: Bool
+    let integrationOffer: IntegrationOffer?
     /// For SSH tabs: whether the destination is in the host library (nil for local tabs).
     let hostSaved: Bool?
 
     init(id: SessionID, title: String, subtitle: String? = nil, subtitleIsCommand: Bool = false,
          failedExitCode: Int32? = nil, commandByAssistant: Bool = false, status: TabStatus, hostColor: HostColor = .none,
          isSelected: Bool, assistantActive: Bool = false, busySince: Date? = nil, tooltip: String = "",
-         offersIntegrationInstall: Bool = false, hostSaved: Bool? = nil) {
+         integrationOffer: IntegrationOffer? = nil, hostSaved: Bool? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -75,7 +82,7 @@ struct TabItemState: Identifiable, Equatable {
         self.assistantActive = assistantActive
         self.busySince = busySince
         self.tooltip = tooltip.isEmpty ? [title, subtitle].compactMap { $0 }.joined(separator: "\n") : tooltip
-        self.offersIntegrationInstall = offersIntegrationInstall
+        self.integrationOffer = integrationOffer
         self.hostSaved = hostSaved
     }
 
@@ -103,11 +110,19 @@ struct TabItemState: Identifiable, Equatable {
             failedExitCode: line.failedExitCode, commandByAssistant: line.byAssistant, status: status,
             hostColor: (savedHost ?? session.kind.host)?.color ?? .none, isSelected: isSelected, assistantActive: assistantActive,
             busySince: busySince, tooltip: tooltip.joined(separator: "\n"),
-            offersIntegrationInstall: session.kind.host != nil && session.shellIntegration == nil && session.state.isRunning,
+            integrationOffer: Self.integrationOffer(for: session),
             hostSaved: session.kind.host == nil ? nil : savedHost != nil)
     }
 
     // MARK: Derivation
+
+    @MainActor
+    private static func integrationOffer(for session: TerminalSession) -> IntegrationOffer? {
+        guard session.kind.host != nil, session.state.isRunning else { return nil }
+        guard session.shellIntegration != nil else { return .install }
+        if let version = session.shellIntegrationVersion, version < AppIdentity.shellIntegrationVersion { return .update }
+        return nil
+    }
 
     @MainActor
     private static func status(for session: TerminalSession, activity: SessionActivity, isSelected: Bool) -> TabStatus {
@@ -130,14 +145,21 @@ struct TabItemState: Identifiable, Equatable {
         }
     }
 
-    /// `user@host` for SSH, the folder (or custom title) for local tabs. `host` overrides
-    /// the session's copy of its host (pass the library's current version).
+    /// `user@host` for SSH (`user@name` when the host shows its name in the prompt), the
+    /// folder (or custom title) for local tabs. `host` overrides the session's copy of its
+    /// host (pass the library's current version).
     @MainActor
     static func firstLine(for session: TerminalSession, host override: HostProfile? = nil) -> String {
         if let custom = session.customTitle, !custom.isEmpty { return custom }
         switch session.kind {
         case .ssh(let original):
             let host = override ?? original
+            let name = host.name.trimmingCharacters(in: .whitespaces)
+            if host.showsNameInPrompt, !name.isEmpty {
+                let user = host.user.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? session.programTitle.flatMap(userAtHost).map { String($0.prefix { $0 != "@" }) }
+                return user.map { "\($0)@\(name)" } ?? name
+            }
             if let user = host.user, !user.isEmpty { return "\(user)@\(host.hostname)" }
             if let program = session.programTitle, let destination = userAtHost(in: program) { return destination }
             return host.name
@@ -180,7 +202,8 @@ struct TabItemState: Identifiable, Equatable {
                 let path = program[program.index(after: colon)...].trimmingCharacters(in: .whitespaces)
                 if !path.isEmpty { return SecondLine(text: path) }
             }
-            return SecondLine(text: host.name == firstLine(for: session, host: host) ? host.destinationLabel : host.name)
+            let showsName = host.showsNameInPrompt || host.name == firstLine(for: session, host: host)
+            return SecondLine(text: showsName ? host.destinationLabel : host.name)
         case .localShell:
             if case .busy(_, let process?) = activity { return SecondLine(text: process, isCommand: true) }
             return SecondLine(text: session.workingDirectory.map { ($0 as NSString).abbreviatingWithTildeInPath })

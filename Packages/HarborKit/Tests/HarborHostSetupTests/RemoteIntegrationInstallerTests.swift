@@ -42,9 +42,10 @@ private struct RemoteHome {
     }
 
     /// Runs a shell as if logged in over SSH to this home.
-    func run(_ shell: String, _ arguments: [String], marker: Bool) async throws -> ProcessResult {
+    func run(_ shell: String, _ arguments: [String], marker: Bool, extra: [String: String] = [:]) async throws -> ProcessResult {
         var environment = ["HOME": url.path, "PATH": "/usr/bin:/bin", "TERM": "xterm-256color"]
         if marker { environment["LC_TERMINAL"] = AppIdentity.name }
+        environment.merge(extra) { $1 }
         return try await ProcessRunner.run(shell, arguments, environment: environment, workingDirectory: url, timeout: .seconds(20))
     }
 
@@ -116,6 +117,27 @@ struct RemoteIntegrationInstallerTests {
         #expect(otherTerminal.output.contains("loaded=no"))
         let script = try await home.run("/bin/bash", ["-c", "source ~/.bashrc; \(probe)"], marker: true)
         #expect(script.output == "loaded=no\n")
+    }
+
+    @Test func showsTheHostsChosenNameInThePrompt() async throws {
+        let home = try RemoteHome()
+        defer { home.remove() }
+        try #"PS1='\u@\h:\w\$ '"#.appending("\n").write(to: home.url.appending(path: ".bashrc"), atomically: true, encoding: .utf8)
+        try "PROMPT='%n@%m %~ %# '\n".write(to: home.url.appending(path: ".zshrc"), atomically: true, encoding: .utf8)
+        try await home.installer(loginShell: "/bin/bash").install()
+        let named = [AppIdentity.hostNameVariable: "Nexus TX"]
+
+        let bashProbe = #"_harbor_name_prompt; printf 'PS1=%s\nLC=%s\nexported=%s\n' "$PS1" "${LC_HARBOR_HOST-unset}" "$(printenv HARBOR_HOST_NAME)""#
+        let bash = try await home.run("/bin/bash", ["-i", "-c", bashProbe], marker: true, extra: named)
+        #expect(bash.output.contains(#"PS1=\u@Nexus TX:\w\$ "#), "\(bash.output) \(bash.errorOutput)")
+        #expect(bash.output.contains("LC=unset"), "the name isn't forwarded to the next host")
+        #expect(bash.output.contains("exported=Nexus TX"), "nested shells keep it")
+
+        let zsh = try await home.run("/bin/zsh", ["-i", "-c", #"_harbor_name_prompt; print -r -- "PS1=$PS1""#], marker: true, extra: named)
+        #expect(zsh.output.contains("PS1=%n@Nexus TX %~ %# "), "\(zsh.output) \(zsh.errorOutput)")
+
+        let plain = try await home.run("/bin/bash", ["-i", "-c", #"_harbor_name_prompt; printf 'PS1=%s\n' "$PS1""#], marker: true)
+        #expect(plain.output.contains(#"PS1=\u@\h:\w\$ "#), "without a name the prompt is untouched")
     }
 
     @Test func reportsWhenTheServerDropsTheMarker() async throws {

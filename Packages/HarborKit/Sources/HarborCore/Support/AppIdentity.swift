@@ -10,7 +10,12 @@ public enum AppIdentity {
 
     /// Version of the bundled shell-integration scripts. Bump when the scripts change so
     /// installed copies are refreshed and Doctor can flag stale shells.
-    public static let shellIntegrationVersion = 2
+    public static let shellIntegrationVersion = 3
+
+    /// Carries a host's display name to its shell (see `HostProfile.showsNameInPrompt`).
+    /// An `LC_*` name because most sshd configurations accept those by default; the
+    /// remote integration moves it out of the `LC_*` namespace so it isn't forwarded on.
+    public static let hostNameVariable = "LC_HARBOR_HOST"
 
     /// The running app's identifier, or the default when running outside an app bundle
     /// (the `harbor-mcp` bridge, `swift test`).

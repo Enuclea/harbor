@@ -37,6 +37,16 @@ struct TabHostStateTests {
         #expect(model.items.first?.hostSaved == true)
     }
 
+    @Test func showsTheChosenNameWhenTheHostAsksForIt() {
+        var host = HostProfile(name: "Nexus TX", hostname: "10.0.0.5", user: "dan")
+        let tab = sshTab(host)
+        #expect(TabItemState.firstLine(for: tab, host: host) == "dan@10.0.0.5")
+        host.showsNameInPrompt = true
+        #expect(TabItemState.firstLine(for: tab, host: host) == "dan@Nexus TX")
+        host.user = nil
+        #expect(TabItemState.firstLine(for: tab, host: host) == "Nexus TX")
+    }
+
     @Test func tabsShowTheSavedHostsCurrentDetails() throws {
         var host = HostProfile(name: "nexus-tx", hostname: "nexus-tx", user: "dan")
         let library = library([host])

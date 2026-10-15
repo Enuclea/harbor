@@ -25,6 +25,9 @@ public final class TerminalSession: Identifiable {
     public private(set) var foregroundProcessName: String?
     /// The shell that announced Harbor integration, e.g. `zsh`.
     public private(set) var shellIntegration: String?
+    /// The integration version the shell reported; hosts with an older install report less
+    /// than `AppIdentity.shellIntegrationVersion`.
+    public private(set) var shellIntegrationVersion: Int?
     public private(set) var isAtPrompt = false
     public private(set) var lastCommand: CommandRecord?
     public private(set) var size: TerminalSize
@@ -298,7 +301,9 @@ public final class TerminalSession: Identifiable {
     private func handleITermExtension(_ payload: String) {
         if payload.hasPrefix("HarborShellIntegration=") {
             let value = payload.dropFirst("HarborShellIntegration=".count)
-            shellIntegration = value.split(separator: ";").first.map(String.init)
+            let fields = value.split(separator: ";")
+            shellIntegration = fields.first.map(String.init)
+            shellIntegrationVersion = fields.first { $0.hasPrefix("version=") }.flatMap { Int($0.dropFirst("version=".count)) }
         } else if payload.hasPrefix("HarborCommand=") {
             let encoded = payload.dropFirst("HarborCommand=".count)
             let command = String(encoded).removingPercentEncoding.map { String($0.prefix(200)) }

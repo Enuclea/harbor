@@ -96,6 +96,26 @@ struct SSHCommandBuilderTests {
         #expect(args.contains("IdentitiesOnly=yes"))
     }
 
+    @Test func carriesTheHostsDisplayNameWhenAsked() {
+        var host = HostProfile(name: "Nexus TX", hostname: "10.0.0.5", showsNameInPrompt: true)
+        #expect(host.promptName == "Nexus TX")
+        #expect(builder.interactive(host).arguments.contains("SendEnv=\(AppIdentity.hostNameVariable)"))
+
+        // Servers that drop LC_* get the name exported with the marker instead.
+        host.remoteIntegration = true
+        host.remoteIntegrationMarker = true
+        #expect(builder.interactive(host).arguments.last == #"export LC_TERMINAL=Harbor LC_HARBOR_HOST='Nexus TX'; exec "$SHELL" -l"#)
+        host.showsNameInPrompt = false
+        #expect(host.promptName == nil)
+        #expect(builder.interactive(host).arguments.last == SSHCommandBuilder.markedLoginShell)
+    }
+
+    @Test func promptNamesKeepOnlyCharactersPromptsPrintLiterally() {
+        #expect(HostProfile.promptSafe(#"a\b$c%d`e!f"#) == "a-b-c-d-e-f")
+        #expect(HostProfile.promptSafe("  Café prod_1.2+x  ") == "Café prod_1.2+x")
+        #expect(HostProfile(name: "  ", hostname: "h", showsNameInPrompt: true).promptName == nil)
+    }
+
     @Test func sftpNeverPrompts() {
         let args = builder.sftpSubsystem(HostProfile(name: "a", hostname: "a.example.com")).arguments
         #expect(args.contains("BatchMode=yes"))

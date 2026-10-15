@@ -164,8 +164,13 @@ struct TabItemView: View {
         if let saved = item.hostSaved {
             Button(saved ? "Edit Host…" : "Save as Host…") { actions.editHost(item.id) }
         }
-        if item.offersIntegrationInstall {
+        switch item.integrationOffer {
+        case .install?:
             Button("Install Shell Integration on This Host…") { actions.installIntegration(item.id) }
+        case .update?:
+            Button("Update Shell Integration on This Host…") { actions.installIntegration(item.id) }
+        case nil:
+            EmptyView()
         }
         Divider()
         Button("Move to New Window") { actions.moveToNewWindow(item.id) }

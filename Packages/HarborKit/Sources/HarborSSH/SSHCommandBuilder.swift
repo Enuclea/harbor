@@ -45,12 +45,18 @@ public struct SSHCommandBuilder: Sendable {
     /// doesn't accept `LC_TERMINAL`. Works for sh, bash, zsh and fish login shells.
     public static let markedLoginShell = #"export LC_TERMINAL=Harbor; exec "$SHELL" -l"#
 
+    /// `markedLoginShell`, also exporting the host's display name for the prompt.
+    public static func markedLoginShell(promptName: String?) -> String {
+        guard let promptName else { return markedLoginShell }
+        return #"export LC_TERMINAL=Harbor \#(AppIdentity.hostNameVariable)=\#(ShellQuoting.quote(promptName)); exec "$SHELL" -l"#
+    }
+
     /// The login for a terminal tab.
     public func interactive(_ host: HostProfile) -> CommandSpec {
         var arguments = sharingOptions(master: "auto") + keepAliveOptions + environmentOptions + hostOptions(host)
         var remoteCommand = host.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if remoteCommand.isEmpty, host.remoteIntegration, host.remoteIntegrationMarker {
-            remoteCommand = Self.markedLoginShell
+            remoteCommand = Self.markedLoginShell(promptName: host.promptName)
         }
         if !remoteCommand.isEmpty { arguments.append("-t") }
         arguments += ["--", host.hostname]
@@ -111,10 +117,11 @@ public struct SSHCommandBuilder: Sendable {
         ]
     }
 
-    /// Forward Harbor's marker so remote shell integration knows it's in Harbor (in
-    /// addition to macOS's default `SendEnv LANG LC_*`).
+    /// Forward Harbor's marker so remote shell integration knows it's in Harbor, and the
+    /// host's display name when the tab sets one (in addition to macOS's default
+    /// `SendEnv LANG LC_*`). ssh sends only variables that are set.
     private var environmentOptions: [String] {
-        ["-o", "SendEnv=LC_TERMINAL"]
+        ["-o", "SendEnv=LC_TERMINAL", "-o", "SendEnv=\(AppIdentity.hostNameVariable)"]
     }
 
     private var keepAliveOptions: [String] {

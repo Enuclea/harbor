@@ -134,11 +134,20 @@ struct HostEditorView: View {
 
     private var problems: [HostProfileProblem] { HostProfileValidator.problems(in: host) }
 
+    private var namePreview: String {
+        let name = HostProfile.promptSafe(host.name.trimmingCharacters(in: .whitespaces).isEmpty ? host.hostname : host.name)
+        let user = host.user.flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
+        return "The tab and prompt read “\(user)@\(name)” instead of the server's hostname. The prompt follows on new "
+            + "connections once Harbor's shell integration is installed or updated on the host (right-click its tab)."
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Form {
                 Section("Connection") {
                     TextField("Name", text: $host.name, prompt: Text(host.hostname.isEmpty ? "Production API" : host.hostname))
+                    Toggle("Show this name in the prompt and tab", isOn: $host.showsNameInPrompt)
+                    if host.showsNameInPrompt { Footnote(namePreview) }
                     TextField("Host", text: $host.hostname, prompt: Text("server.example.com or an ssh config alias"))
                     Toggle("Use matching ~/.ssh/config entry", isOn: $host.usesSSHConfigAlias)
                     TextField("User", text: .optionalString($host.user), prompt: Text(NSUserName()))

@@ -33,6 +33,9 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
     /// The host's sshd drops `LC_TERMINAL`, so Harbor starts the login shell with the
     /// marker set explicitly instead.
     public var remoteIntegrationMarker: Bool
+    /// Show `name` instead of the server's hostname: on the tab, and (with shell
+    /// integration on the host) wherever the prompt shows the hostname.
+    public var showsNameInPrompt: Bool
 
     public init(
         id: HostID = HostID(),
@@ -53,7 +56,8 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         lastConnected: Date? = nil,
         notes: String? = nil,
         remoteIntegration: Bool = false,
-        remoteIntegrationMarker: Bool = false
+        remoteIntegrationMarker: Bool = false,
+        showsNameInPrompt: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -74,12 +78,13 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         self.notes = notes
         self.remoteIntegration = remoteIntegration
         self.remoteIntegrationMarker = remoteIntegrationMarker
+        self.showsNameInPrompt = showsNameInPrompt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, hostname, user, port, identityFile, jumpHost, usesSSHConfigAlias, forwardAgent
         case startupCommand, remoteDirectory, tags, color, themeID, isFavorite, lastConnected, notes
-        case remoteIntegration, remoteIntegrationMarker
+        case remoteIntegration, remoteIntegrationMarker, showsNameInPrompt
     }
 
     /// Lenient decoding: only `hostname` is required, so files written by older or newer
@@ -106,7 +111,8 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
             lastConnected: try c.decodeIfPresent(Date.self, forKey: .lastConnected),
             notes: try c.decodeIfPresent(String.self, forKey: .notes),
             remoteIntegration: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegration) ?? false,
-            remoteIntegrationMarker: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegrationMarker) ?? false
+            remoteIntegrationMarker: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegrationMarker) ?? false,
+            showsNameInPrompt: try c.decodeIfPresent(Bool.self, forKey: .showsNameInPrompt) ?? false
         )
     }
 
@@ -116,6 +122,21 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         if let user, !user.isEmpty { label = "\(user)@\(label)" }
         if let port, port != 22 { label += ":\(port)" }
         return label
+    }
+
+    /// The name to show in the host's prompt, when `showsNameInPrompt` is on. Reduced to
+    /// characters that every shell's prompt prints literally (letters, digits, space and
+    /// `._+-`); anything else becomes `-`.
+    public var promptName: String? {
+        guard showsNameInPrompt else { return nil }
+        let name = Self.promptSafe(name)
+        return name.isEmpty ? nil : name
+    }
+
+    public static func promptSafe(_ text: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " ._+-"))
+        let mapped = String(String.UnicodeScalarView(text.unicodeScalars.map { allowed.contains($0) ? $0 : "-" }))
+        return String(mapped.trimmingCharacters(in: .whitespaces).prefix(64))
     }
 
     /// Lowercased text used for fuzzy matching in Quick Connect and by AI tools.

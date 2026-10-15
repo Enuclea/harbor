@@ -87,6 +87,7 @@ struct SessionControlTests {
         let harness = try Harness { $0.ai.inputPolicy = .allow }
         let session = try await harness.openReadyShell()
         #expect(session.activity == .idle(lastExitCode: nil))
+        #expect(session.shellIntegrationVersion == AppIdentity.shellIntegrationVersion)
 
         try await harness.control.sendInput("1", text: "sleep 1\r", client: assistant)
         let deadline = ContinuousClock.now + .seconds(5)

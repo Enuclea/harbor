@@ -8,6 +8,13 @@
 typeset -g _HARBOR_INTEGRATION_LOADED=1
 typeset -gi _harbor_command_running=0
 
+# The display name chosen for this host in Harbor ("Show this name in the prompt and
+# tab"). Moved out of LC_* so ssh doesn't carry it on to the next host.
+if [[ -n "${LC_HARBOR_HOST-}" ]]; then
+  export HARBOR_HOST_NAME="$LC_HARBOR_HOST"
+fi
+unset LC_HARBOR_HOST
+
 # Percent-encodes $1 into $REPLY without forking.
 _harbor_urlencode() {
   emulate -L zsh
@@ -49,6 +56,18 @@ _harbor_preexec() {
   _harbor_command_running=1
 }
 
+# Shows HARBOR_HOST_NAME wherever the prompt shows the hostname (%m, %M). Runs after the
+# other precmd functions, so themes that rebuild the prompt every time are covered too.
+_harbor_name_prompt() {
+  emulate -L zsh
+  [[ -n "${HARBOR_HOST_NAME-}" ]] || return 0
+  local name="${HARBOR_HOST_NAME//[^[:alnum:] ._+-]/-}"
+  PS1="${PS1//\%[mM]/$name}"
+  [[ -n "${RPROMPT-}" ]] && RPROMPT="${RPROMPT//\%[mM]/$name}"
+  [[ -n "${RPS1-}" ]] && RPS1="${RPS1//\%[mM]/$name}"
+  return 0
+}
+
 # Marks where input starts. Runs last so themes that rebuild PS1 keep the mark.
 _harbor_mark_prompt_end() {
   [[ "$PS1" == *$'\e]133;B'* ]] || PS1="${PS1}%{"$'\e]133;B\a'"%}"
@@ -59,7 +78,7 @@ if [[ -n "${HARBOR_PROMPT_FILE-}" && -r "$HARBOR_PROMPT_FILE" ]]; then
 fi
 
 typeset -ga precmd_functions preexec_functions
-precmd_functions=(_harbor_precmd ${precmd_functions:#(_harbor_precmd|_harbor_mark_prompt_end)} _harbor_mark_prompt_end)
+precmd_functions=(_harbor_precmd ${precmd_functions:#(_harbor_precmd|_harbor_name_prompt|_harbor_mark_prompt_end)} _harbor_name_prompt _harbor_mark_prompt_end)
 preexec_functions=(${preexec_functions:#_harbor_preexec} _harbor_preexec)
 
-builtin print -rn -- $'\e]1337;HarborShellIntegration=zsh;version=2\a'
+builtin print -rn -- $'\e]1337;HarborShellIntegration=zsh;version=3\a'

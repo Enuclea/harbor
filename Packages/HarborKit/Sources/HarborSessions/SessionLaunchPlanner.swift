@@ -39,6 +39,7 @@ public struct SessionLaunchPlanner: Sendable {
         case .ssh(let host):
             try HostProfileValidator.validate(host)
             let command = SSHCommandBuilder(settings: settings.ssh, controlDirectory: paths.sshControl).interactive(host)
+            if let name = host.promptName { environment[AppIdentity.hostNameVariable] = name }
             return PTYProcess.Configuration(
                 executable: command.executable, arguments: command.arguments,
                 environment: environment, workingDirectory: paths.home.path, size: size)
@@ -82,7 +83,7 @@ public struct SessionLaunchPlanner: Sendable {
         "TERM_SESSION_ID", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "ITERM_SESSION_ID", "ITERM_PROFILE",
         "__CFBundleIdentifier", "XPC_SERVICE_NAME", "XPC_FLAGS", "CFProcessPath", "OS_ACTIVITY_DT_MODE",
         "NSZombieEnabled", "MallocNanoZone", "HARBOR_SESSION_ID", "HARBOR_PROMPT_FILE",
-        "HARBOR_SHELL_INTEGRATION_DIR", "HARBOR_ORIG_ZDOTDIR",
+        "HARBOR_SHELL_INTEGRATION_DIR", "HARBOR_ORIG_ZDOTDIR", "HARBOR_HOST_NAME", AppIdentity.hostNameVariable,
     ]
 
     static let strippedPrefixes = ["DYLD_", "__XCODE", "__XPC_", "XCODE_", "SWIFT_DEBUG"]

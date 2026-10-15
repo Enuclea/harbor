@@ -247,7 +247,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
             do {
                 let report = try await RemoteIntegrationActions.install(host, services: services)
                 let alert = NSAlert()
-                alert.messageText = "Shell integration installed on \(host.name)"
+                alert.messageText = "Shell integration is ready on \(host.name)"
                 alert.informativeText = report.summary + " New tabs to this host will use it."
                 alert.addButton(withTitle: "Open New Tab")
                 alert.addButton(withTitle: "Later")
