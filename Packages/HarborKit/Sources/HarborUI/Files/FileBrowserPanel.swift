@@ -21,6 +21,9 @@ struct FileBrowserPanel: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            if let contents = model.clipboard.contents {
+                ClipboardRow(contents: contents, canPaste: !model.path.isEmpty) { Task { await model.paste() } }
+            }
             TransferList(center: model.transfers)
             footer
         }
@@ -136,6 +139,28 @@ private final class URLCollector: @unchecked Sendable {
             return remaining == 0 ? urls : nil
         }
         if let done, !done.isEmpty { completion(done) }
+    }
+}
+
+/// What's on the file clipboard, with a button to paste it into the folder shown.
+private struct ClipboardRow: View {
+    let contents: FileClipboard.Contents
+    let canPaste: Bool
+    let paste: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.on.clipboard").foregroundStyle(.secondary)
+            Text(contents.summary).font(.caption).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            Button("Paste Here", action: paste)
+                .controlSize(.small)
+                .disabled(!canPaste)
+                .help("Copy the clipboard's files into this folder (⌘V in the file list)")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.06))
     }
 }
 

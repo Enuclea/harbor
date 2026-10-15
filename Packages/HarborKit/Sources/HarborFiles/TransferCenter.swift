@@ -35,6 +35,11 @@ public final class Transfer: Identifiable {
     }
 
     public var isActive: Bool { state == .queued || state == .running }
+
+    /// Returns once the transfer has finished, failed or been cancelled.
+    public func waitUntilDone() async {
+        await task?.value
+    }
 }
 
 /// Runs transfers with bounded concurrency and publishes their progress (throttled so

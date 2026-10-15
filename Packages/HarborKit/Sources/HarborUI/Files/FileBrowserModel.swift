@@ -41,6 +41,7 @@ final class FileBrowserModel {
     }
 
     var transfers: TransferCenter { services.transfers }
+    var clipboard: FileClipboard { services.clipboard }
     var isRemote: Bool { browser.isRemote }
     var title: String { browser.isRemote ? browser.title : "This Mac" }
 
@@ -170,6 +171,20 @@ final class FileBrowserModel {
                 if target == self?.path { await self?.refresh() }
             }
         }
+    }
+
+    // MARK: Clipboard
+
+    func copyToClipboard(_ entries: [FileEntry]) {
+        services.clipboard.copy(entries, from: browser)
+    }
+
+    /// Pastes what's on the clipboard into `directory` (the folder shown when nil), uploading
+    /// to this tab's host.
+    func paste(into directory: String? = nil) async {
+        let urls = await services.clipboard.itemsToPaste()
+        guard !urls.isEmpty else { return }
+        await upload(urls, into: directory)
     }
 
     // MARK: File operations

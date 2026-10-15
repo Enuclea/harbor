@@ -40,6 +40,7 @@ struct FileTableView: NSViewRepresentable {
         table.registerForDraggedTypes([.fileURL])
         table.setDraggingSourceOperationMask(.copy, forLocal: false)
         table.onKey = { [weak coordinator = context.coordinator] event in coordinator?.handleKey(event) ?? false }
+        table.clipboardHandler = context.coordinator
         context.coordinator.table = table
 
         let scroll = NSScrollView()
@@ -185,6 +186,25 @@ struct FileTableView: NSViewRepresentable {
         /// Arrows, Tab, Page Up/Down, Home and End.
         static let tableKeys: Set<UInt16> = [123, 124, 125, 126, 48, 116, 121, 115, 119]
 
+        // MARK: Clipboard (⌘C / ⌘V and the context menu)
+
+        var canCopy: Bool { !selectedEntries.isEmpty }
+        var canPaste: Bool { model.clipboard.canPaste && !model.path.isEmpty }
+
+        func copySelection() {
+            model.copyToClipboard(selectedEntries)
+        }
+
+        func paste(into directory: String? = nil) {
+            Task { await model.paste(into: directory) }
+        }
+
+        @objc private func menuCopy() { copySelection() }
+        @objc private func menuPaste() { paste() }
+        @objc private func menuPasteIntoFolder() {
+            if let folder = selectedEntries.first, folder.isDirectory { paste(into: folder.path) }
+        }
+
         // MARK: Drag out
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
@@ -262,6 +282,7 @@ struct FileTableView: NSViewRepresentable {
             }
             if !selection.isEmpty {
                 add("Open", #selector(menuOpen))
+                add(selection.count == 1 ? "Copy “\(selection[0].name)”" : "Copy \(selection.count) Items", #selector(menuCopy))
                 add(model.isRemote ? "Download to Downloads" : "Copy to Downloads", #selector(menuDownload))
                 add("Download To…", #selector(menuDownloadTo))
                 menu.addItem(.separator())
@@ -275,6 +296,11 @@ struct FileTableView: NSViewRepresentable {
                 add(model.isRemote ? "Delete…" : "Move to Trash…", #selector(menuDelete))
                 menu.addItem(.separator())
             }
+            if selection.count == 1, selection[0].isDirectory {
+                add("Paste Into “\(selection[0].name)”", #selector(menuPasteIntoFolder), enabled: canPaste)
+            }
+            add("Paste", #selector(menuPaste), enabled: canPaste)
+            menu.addItem(.separator())
             add("New Folder…", #selector(menuNewFolder))
             add("Upload Files…", #selector(menuUpload))
             add("Refresh", #selector(menuRefresh))
@@ -365,11 +391,24 @@ struct FileTableView: NSViewRepresentable {
     }
 }
 
-/// Forwards key presses so the coordinator can handle Return, Delete and ⌘↑.
-final class FileTable: NSTableView {
+/// Forwards key presses so the coordinator can handle Return, Delete and ⌘↑, and answers
+/// Edit ▸ Copy / Paste (⌘C / ⌘V) while the list has focus.
+final class FileTable: NSTableView, NSMenuItemValidation {
     var onKey: ((NSEvent) -> Bool)?
+    weak var clipboardHandler: FileTableView.Coordinator?
 
     override func keyDown(with event: NSEvent) {
         if onKey?(event) != true { super.keyDown(with: event) }
+    }
+
+    @objc func copy(_ sender: Any?) { clipboardHandler?.copySelection() }
+    @objc func paste(_ sender: Any?) { clipboardHandler?.paste() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)): clipboardHandler?.canCopy ?? false
+        case #selector(paste(_:)): clipboardHandler?.canPaste ?? false
+        default: true
+        }
     }
 }

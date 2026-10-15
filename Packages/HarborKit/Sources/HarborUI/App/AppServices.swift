@@ -27,6 +27,7 @@ final class AppServices {
     let mcpRegistry: MCPClientRegistry
     let remote: RemoteAccessCoordinator
     let transfers = TransferCenter()
+    let clipboard: FileClipboard
     let keys: SSHKeyManager
     let doctor = Doctor()
     let shellLayout: ShellIntegrationLayout
@@ -57,6 +58,7 @@ final class AppServices {
         mcpRegistry = MCPClientRegistry(bridgePath: Self.bridgePath, home: paths.home)
         keys = SSHKeyManager(sshDirectory: paths.sshDirectory)
         shellLayout = ShellIntegrationLayout(paths: paths)
+        clipboard = FileClipboard(directory: paths.fileClipboard, transfers: transfers)
         remote = RemoteAccessCoordinator(control: control, keychain: keychain, audit: audit) {
             settings.settings.remote
         }

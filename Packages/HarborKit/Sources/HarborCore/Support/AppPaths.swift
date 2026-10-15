@@ -33,6 +33,8 @@ public struct AppPaths: Sendable {
     public var settingsFile: URL { applicationSupport.appending(path: "settings.json") }
     public var hostsFile: URL { applicationSupport.appending(path: "hosts.json") }
     public var sessionStateFile: URL { applicationSupport.appending(path: "session-state.json") }
+    /// Files copied from remote hosts, held here while they're on the clipboard.
+    public var fileClipboard: URL { applicationSupport.appending(path: "Clipboard", directoryHint: .isDirectory) }
     public var shellIntegration: URL { applicationSupport.appending(path: "shell", directoryHint: .isDirectory) }
     public var runtime: URL { applicationSupport.appending(path: "run", directoryHint: .isDirectory) }
     public var controlSocket: URL { runtime.appending(path: "control.sock") }
@@ -46,7 +48,7 @@ public struct AppPaths: Sendable {
         for directory in [applicationSupport, logs, sessionRecordings, shellIntegration] {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        for privateDirectory in [runtime, sshDirectory, sshControl] {
+        for privateDirectory in [runtime, sshDirectory, sshControl, fileClipboard] {
             try fileManager.createDirectory(at: privateDirectory, withIntermediateDirectories: true)
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: privateDirectory.path)
         }
