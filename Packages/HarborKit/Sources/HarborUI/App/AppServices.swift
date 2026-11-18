@@ -1,8 +1,10 @@
 import AppKit
+import HarborAssist
 import HarborControl
 import HarborCore
 import HarborDoctor
 import HarborFiles
+import HarborHostSetup
 import HarborLogging
 import HarborMCP
 import HarborRemote
@@ -25,6 +27,8 @@ final class AppServices {
     let control: SessionControlService
     let mcp: MCPService
     let mcpRegistry: MCPClientRegistry
+    let assist: AssistService
+    let githubScripts: GitHubScriptLibrary
     let remote: RemoteAccessCoordinator
     let transfers = TransferCenter()
     let clipboard: FileClipboard
@@ -56,6 +60,8 @@ final class AppServices {
         control = SessionControlService(manager: sessions, hosts: hosts, settings: settings, audit: audit)
         mcp = MCPService(socketPath: paths.controlSocket.path, control: control)
         mcpRegistry = MCPClientRegistry(bridgePath: Self.bridgePath, home: paths.home)
+        assist = AssistService(settings: settings, keychain: keychain, audit: audit)
+        githubScripts = GitHubScriptLibrary(paths: paths, settings: settings, keychain: keychain)
         keys = SSHKeyManager(sshDirectory: paths.sshDirectory)
         shellLayout = ShellIntegrationLayout(paths: paths)
         clipboard = FileClipboard(directory: paths.fileClipboard, transfers: transfers)
@@ -84,6 +90,57 @@ final class AppServices {
         if let hostTheme = session.kind.host?.themeID, let theme = BuiltInThemes.theme(id: hostTheme) { return theme }
         return currentTheme
     }
+
+    /// Saves `updated` to the host library and synchronizes any open SSH tabs for that host
+    /// (updating their embedded profile and starting/stopping changed auto-start port forwards).
+    func saveAndSyncHost(_ updated: HostProfile) {
+        let previousSavedKeys = Set(hosts.host(id: updated.id)?.portForwards.map(\.endpointKey) ?? [])
+        hosts.upsert(updated)
+
+        let desiredAutoRules = updated.portForwards.filter(\.autoStart)
+        let desiredAutoKeys = Set(desiredAutoRules.map(\.endpointKey))
+        let removedSavedKeys = previousSavedKeys.subtracting(desiredAutoKeys)
+
+        let matchingSessions = sessions.sessions.filter { $0.kind.host?.id == updated.id }
+        guard !matchingSessions.isEmpty else { return }
+
+        for session in matchingSessions {
+            session.refreshHostProfile(updated)
+        }
+
+        let runningSessions = matchingSessions.filter { $0.state.isRunning }
+        guard !runningSessions.isEmpty else { return }
+
+        let builder = SSHCommandBuilder(settings: settings.settings.ssh, controlDirectory: paths.sshControl)
+        let sharing = ConnectionSharing(builder: builder)
+
+        Task { @MainActor in
+            // ControlMaster is shared per destination, so run ssh -O forward/cancel once per rule
+            // and reflect state across all open tabs for this host.
+            let sampleSession = runningSessions[0]
+            let activeByKey = Dictionary(uniqueKeysWithValues: sampleSession.activePortForwards.map { ($0.endpointKey, $0) })
+
+            for key in removedSavedKeys {
+                if let rule = activeByKey[key] {
+                    try? await sharing.stopForward(rule, on: updated)
+                    for session in runningSessions {
+                        session.removeActiveForward(id: rule.id)
+                    }
+                }
+            }
+
+            for rule in desiredAutoRules where activeByKey[rule.endpointKey] == nil {
+                if (try? await sharing.startForward(rule, on: updated)) != nil {
+                    for session in runningSessions {
+                        session.recordActiveForward(rule)
+                    }
+                } else {
+                    // Even if ControlMaster isn't finished authenticating yet, record whenssh started with -L
+                    // only if ssh -O forward succeeded; otherwise leave for reconnect.
+                }
+            }
+        }
+    }
 }
 
 /// App-level actions panes and windows can request without knowing the controller.
@@ -93,6 +150,7 @@ protocol AppActions: AnyObject {
     func openLocalTab(in directory: String?)
     func connect(to host: HostProfile)
     func runInNewTab(_ command: CommandSpec, title: String)
+    func runPlaybookInActiveTab(_ playbook: ScriptPlaybook, variables: [String: String], executeImmediately: Bool)
     func perform(_ remedy: Remedy)
     func showQuickConnect()
     func showOnboarding()

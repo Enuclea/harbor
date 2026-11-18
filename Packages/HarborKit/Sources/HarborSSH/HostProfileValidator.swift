@@ -7,6 +7,7 @@ public enum HostProfileProblem: Error, LocalizedError, Equatable {
     case invalidPort
     case invalidJumpHost
     case invalidIdentityFile
+    case invalidPortForward
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +16,7 @@ public enum HostProfileProblem: Error, LocalizedError, Equatable {
         case .invalidPort: "The port must be between 1 and 65535."
         case .invalidJumpHost: "The jump host isn't valid."
         case .invalidIdentityFile: "The identity file path isn't valid."
+        case .invalidPortForward: "One of the port forwards or proxies has an invalid port or address."
         }
     }
 }
@@ -38,7 +40,24 @@ public enum HostProfileValidator {
         if let identity = host.identityFile, identity.hasPrefix("-") || identity.contains("\n") {
             problems.append(.invalidIdentityFile)
         }
+        if !host.portForwards.allSatisfy(isValidForward) {
+            problems.append(.invalidPortForward)
+        }
         return problems
+    }
+
+    public static func isValidForward(_ rule: PortForwardRule) -> Bool {
+        guard PortForwardRule.isValidPort(rule.listenPort),
+              PortForwardRule.isValidAddress(rule.bindAddress) else {
+            return false
+        }
+        if rule.kind != .dynamic {
+            guard PortForwardRule.isValidPort(rule.targetPort),
+                  PortForwardRule.isValidAddress(rule.targetHost) else {
+                return false
+            }
+        }
+        return true
     }
 
     public static func validate(_ host: HostProfile) throws {

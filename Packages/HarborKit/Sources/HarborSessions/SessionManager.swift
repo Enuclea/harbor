@@ -2,6 +2,7 @@ import Foundation
 import HarborControl
 import HarborCore
 import HarborLogging
+import HarborPTY
 import Observation
 
 /// Owns every open session: creates them, keeps their process info fresh, applies the
@@ -43,19 +44,27 @@ public final class SessionManager {
     /// Creates a session, has the presenter show it (so the renderer subscribes first), then starts it.
     @discardableResult
     public func open(_ kind: SessionKind, workingDirectory: String? = nil, placement: SessionPlacement = .newTab) -> TerminalSession {
+        let effectiveKind: SessionKind
+        switch kind {
+        case .ssh(let host):
+            effectiveKind = .ssh(hosts.host(id: host.id) ?? host)
+        default:
+            effectiveKind = kind
+        }
         let current = settings.settings
         let size = TerminalSize(columns: current.appearance.initialColumns, rows: current.appearance.initialRows)
         let id = SessionID()
         let session: TerminalSession
         do {
             let configuration = try planner.configuration(
-                for: kind, settings: current, workingDirectory: workingDirectory, size: size, sessionID: id,
+                for: effectiveKind, settings: current, workingDirectory: workingDirectory, size: size, sessionID: id,
                 inheritedEnvironment: environment)
-            session = TerminalSession(id: id, kind: kind, configuration: configuration)
+            session = TerminalSession(id: id, kind: effectiveKind, configuration: configuration)
         } catch {
-            session = TerminalSession(id: id, kind: kind, configuration: nil, launchError: error.localizedDescription)
+            session = TerminalSession(id: id, kind: effectiveKind, configuration: nil, launchError: error.localizedDescription)
         }
         session.setRecorder(makeRecorder(for: session, size: size, mode: current.logging.sessionRecording))
+        session.configurationProvider = { [weak self] session in self?.replanConfiguration(for: session) }
         session.onTerminated = { [weak self] in self?.sessionEnded($0) }
         session.onUpdated = { [weak self] in self?.broadcast(.sessionUpdated($0.id.description)) }
         sessions.append(session)
@@ -63,13 +72,29 @@ public final class SessionManager {
         presenter?.present(session, placement: placement)
         session.start()
 
-        if let host = kind.host, hosts.host(id: host.id) != nil {
+        if let host = effectiveKind.host, hosts.host(id: host.id) != nil {
             hosts.markConnected(id: host.id)
         }
-        log.info("opened \(kind.label) session \(id.shortDescription)")
+        log.info("opened \(effectiveKind.label) session \(id.shortDescription)")
         broadcast(.sessionOpened(id.description))
         startRefreshing()
         return session
+    }
+
+    private func replanConfiguration(for session: TerminalSession) -> (kind: SessionKind, configuration: PTYProcess.Configuration)? {
+        let current = settings.settings
+        let updatedKind: SessionKind
+        switch session.kind {
+        case .ssh(let host):
+            updatedKind = .ssh(hosts.host(id: host.id) ?? host)
+        default:
+            updatedKind = session.kind
+        }
+        guard let configuration = try? planner.configuration(
+            for: updatedKind, settings: current, workingDirectory: session.workingDirectory, size: session.size,
+            sessionID: session.id, inheritedEnvironment: environment)
+        else { return nil }
+        return (updatedKind, configuration)
     }
 
     // MARK: Closing

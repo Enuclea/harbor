@@ -45,6 +45,24 @@ struct SettingsTests {
         #expect(document.hosts.first?.color == HostColor.none)
     }
 
+    @Test @MainActor func hostLibraryPersistsPortForwardsAcrossReloads() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "harbor-hosts-persist-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let rule = try PortForwardRule.build(kind: .local, localInput: "8291", remoteInput: "192.168.88.1:8291")
+        var host = HostProfile(name: "Bastion", hostname: "bastion.example.org", user: "ops")
+        let lib1 = HostLibrary(store: JSONFileStore(url: url) { HostDocument() })
+        lib1.upsert(host)
+
+        host.portForwards = [rule]
+        lib1.upsert(host)
+
+        let lib2 = HostLibrary(store: JSONFileStore(url: url) { HostDocument() })
+        let reloaded = try #require(lib2.host(id: host.id))
+        #expect(reloaded.portForwards == [rule])
+        #expect(reloaded.portForwards.first?.displaySummary == "localhost:8291 → 192.168.88.1:8291")
+    }
+
     @Test func themesHaveSixteenColours() {
         for theme in BuiltInThemes.all {
             #expect(theme.ansi.count == 16, "\(theme.name)")

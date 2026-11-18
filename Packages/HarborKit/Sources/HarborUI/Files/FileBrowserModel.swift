@@ -20,6 +20,11 @@ final class FileBrowserModel {
     var showHidden = false
     /// Follow the terminal's working directory as it changes.
     var followsTerminal = true
+    /// Instant filter for the current directory's items (`/` in the file list).
+    var filterQuery = ""
+    var isFiltering = false
+    /// Toggle between clickable breadcrumbs and an editable path field (`⇧⌘G`).
+    var isEditingPath = false
 
     /// Hands the keyboard back to the terminal, replaying `event` there if given. Set by
     /// the tab's container.
@@ -28,6 +33,7 @@ final class FileBrowserModel {
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private let log = Log(.sftp)
     @ObservationIgnored private var isActive = false
+    @ObservationIgnored private var editWatchers: [URL: FileWatcher] = [:]
 
     init(session: TerminalSession, services: AppServices) {
         self.session = session
@@ -46,7 +52,13 @@ final class FileBrowserModel {
     var title: String { browser.isRemote ? browser.title : "This Mac" }
 
     var visibleEntries: [FileEntry] {
-        entries.filter { showHidden || !$0.isHidden }.sorted(by: FileEntry.finderOrder)
+        let trimmed = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.filter { entry in
+            guard showHidden || !entry.isHidden else { return false }
+            guard !trimmed.isEmpty else { return true }
+            return entry.name.localizedCaseInsensitiveContains(trimmed)
+                || FuzzyMatcher.score(trimmed, in: entry.name) != nil
+        }.sorted(by: FileEntry.finderOrder)
     }
 
     // MARK: Lifecycle
@@ -70,6 +82,8 @@ final class FileBrowserModel {
 
     func deactivate() async {
         isActive = false
+        editWatchers.values.forEach { $0.stop() }
+        editWatchers.removeAll()
         if let remote = browser as? RemoteFileBrowser { await remote.disconnect() }
     }
 
@@ -90,15 +104,17 @@ final class FileBrowserModel {
     // MARK: Navigation
 
     func load(_ newPath: String) async {
+        let expanded = isRemote ? newPath : (newPath as NSString).expandingTildeInPath
         isLoading = true
         defer { isLoading = false }
         do {
-            entries = try await browser.list(newPath)
-            path = newPath
+            entries = try await browser.list(expanded)
+            path = expanded
+            filterQuery = ""
             error = nil
         } catch {
             self.error = error.localizedDescription
-            log.warning("listing \(newPath) failed: \(error.localizedDescription)")
+            log.warning("listing \(expanded) failed: \(error.localizedDescription)")
         }
     }
 
@@ -121,6 +137,61 @@ final class FileBrowserModel {
             } else {
                 NSWorkspace.shared.open(URL(fileURLWithPath: resolved.path))
             }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Prepares a local file URL for Quick Look (`Space`), downloading remote files ≤ 10 MB to a temporary folder.
+    func previewFileURL(for entry: FileEntry) async throws -> URL {
+        let resolved = try await browser.resolve(entry)
+        guard !resolved.isDirectory else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        if !isRemote {
+            return URL(fileURLWithPath: resolved.path)
+        }
+        if let size = resolved.size, size > 10 * 1024 * 1024 {
+            throw CocoaError(.fileReadTooLarge, userInfo: [NSLocalizedDescriptionKey: "Quick Look over SFTP is limited to files under 10 MB."])
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HarborQuickLook-\(session.id.shortDescription)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return try await browser.download(resolved, into: dir, progress: { _, _ in })
+    }
+
+    /// Downloads a remote file to a temporary directory, opens it in the default macOS editor,
+    /// and watches for saves to automatically re-upload over SFTP.
+    func openInDefaultEditor(_ entry: FileEntry) async {
+        do {
+            let resolved = try await browser.resolve(entry)
+            guard !resolved.isDirectory else { return }
+            if !isRemote {
+                NSWorkspace.shared.open(URL(fileURLWithPath: resolved.path))
+                return
+            }
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("HarborEdit-\(session.id.shortDescription)-\(UUID().uuidString.prefix(6))", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let remoteParent = RemotePath.parent(of: resolved.path)
+            let browser = browser
+            let transfer = transfers.enqueue(name: resolved.name, direction: .download) { progress in
+                try await browser.download(resolved, into: dir, progress: progress)
+            }
+            while transfer.isActive {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            guard let localURL = transfer.resultURL else { return }
+            NSWorkspace.shared.open(localURL)
+
+            editWatchers[localURL]?.stop()
+            let watcher = FileWatcher(url: localURL) { [weak self] in
+                Task { @MainActor [weak self] in
+                    await self?.upload([localURL], into: remoteParent)
+                }
+            }
+            editWatchers[localURL] = watcher
+            watcher.start()
         } catch {
             self.error = error.localizedDescription
         }

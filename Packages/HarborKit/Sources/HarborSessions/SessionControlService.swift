@@ -138,8 +138,16 @@ public final class SessionControlService: TerminalControlling, TerminalStreaming
 
     // MARK: Authorization
 
+    public func hasRememberedApproval(for sessionID: SessionID) -> Bool {
+        rememberedApprovals.contains { $0.session == sessionID }
+    }
+
+    public func revokeApproval(for sessionID: SessionID) {
+        rememberedApprovals = rememberedApprovals.filter { $0.session != sessionID }
+    }
+
     private func authorize(_ action: ControlAction, client: ControlClient, session: TerminalSession?, detail: String?) async throws {
-        switch ControlPolicy.decide(action, client: client, settings: settings.settings) {
+        switch ControlPolicy.decide(action, detail: detail, client: client, settings: settings.settings) {
         case .allow:
             return
         case .deny(let reason):
@@ -240,7 +248,8 @@ public final class SessionControlService: TerminalControlling, TerminalStreaming
             isFocused: (focused ?? manager.presenter?.focusedSessionID()) == session.id,
             columns: session.size.columns, rows: session.size.rows, shellIntegration: session.shellIntegration,
             isAtPrompt: session.isAtPrompt, lastCommandExitCode: session.lastCommand?.exitCode,
-            activity: session.activity.name, runningCommand: session.runningCommand)
+            activity: session.activity.name, runningCommand: session.runningCommand,
+            systemProfile: session.systemProfile)
     }
 
     private func fallbackSnapshot(_ session: TerminalSession, scrollbackLines: Int) -> ScreenSnapshot {

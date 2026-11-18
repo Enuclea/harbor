@@ -34,10 +34,14 @@ public actor RemoteAuthenticator {
     private var sessions: [String: RemoteSession] = [:]
     private var failures: [String: [Date]] = [:]
     private var lockouts: [String: Date] = [:]
+    private var globalFailures: [Date] = []
+    private var globalLockoutUntil: Date?
     private var sessionLifetime: TimeInterval
 
     /// Failed attempts allowed per address within `failureWindow` before a lockout.
     private let maximumFailures = 5
+    /// Global cap across all headers/addresses so spoofed `X-Forwarded-For` headers cannot bypass lockout.
+    private let maximumGlobalFailures = 15
     private let failureWindow: TimeInterval = 300
     private let lockoutDuration: TimeInterval = 900
 
@@ -76,6 +80,9 @@ public actor RemoteAuthenticator {
     // MARK: Login
 
     public func login(token: String, clientAddress: String, userAgent: String, now: Date = Date()) -> LoginResult {
+        if let until = globalLockoutUntil, until > now {
+            return .rateLimited(until: until)
+        }
         if let until = lockouts[clientAddress], until > now {
             return .rateLimited(until: until)
         }
@@ -88,10 +95,16 @@ public actor RemoteAuthenticator {
                 lockouts[clientAddress] = now.addingTimeInterval(lockoutDuration)
                 log.warning("locked out \(clientAddress) after \(recent.count) failed sign-ins")
             }
+            globalFailures = globalFailures.filter { now.timeIntervalSince($0) < failureWindow } + [now]
+            if globalFailures.count >= maximumGlobalFailures {
+                globalLockoutUntil = now.addingTimeInterval(lockoutDuration)
+                log.warning("global remote sign-in lockout triggered after \(globalFailures.count) failed attempts")
+            }
             audit.record(AuditRecord(actor: "web:\(clientAddress)", action: "login", outcome: .denied))
             return .invalidToken
         }
         failures[clientAddress] = nil
+        globalFailures.removeAll()
         let session = RemoteSession(
             id: Self.randomToken(), clientAddress: clientAddress, userAgent: String(userAgent.prefix(200)),
             createdAt: now, expiresAt: now.addingTimeInterval(sessionLifetime))

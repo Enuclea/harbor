@@ -1,5 +1,6 @@
 import AppKit
 import HarborFiles
+import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -38,6 +39,7 @@ struct FileTableView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.openClicked(_:))
         table.menu = context.coordinator.makeMenu()
         table.registerForDraggedTypes([.fileURL])
+        table.setDraggingSourceOperationMask(.copy, forLocal: true)
         table.setDraggingSourceOperationMask(.copy, forLocal: false)
         table.onKey = { [weak coordinator = context.coordinator] event in coordinator?.handleKey(event) ?? false }
         table.clipboardHandler = context.coordinator
@@ -58,11 +60,12 @@ struct FileTableView: NSViewRepresentable {
     // MARK: Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSFilePromiseProviderDelegate, NSMenuDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSFilePromiseProviderDelegate, NSMenuDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
         let model: FileBrowserModel
         let onClose: () -> Void
         weak var table: NSTableView?
         private var rows: [FileEntry] = []
+        private var previewURLs: [URL] = []
         private let promiseQueue: OperationQueue = {
             let queue = OperationQueue()
             queue.qualityOfService = .userInitiated
@@ -162,14 +165,31 @@ struct FileTableView: NSViewRepresentable {
         /// The list keeps navigation keys; anything else is typing meant for the shell, so it
         /// goes to the terminal (and the terminal takes the keyboard back).
         func handleKey(_ event: NSEvent) -> Bool {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if event.charactersIgnoringModifiers?.lowercased() == "g", flags == [.command, .shift] {
+                model.isEditingPath = true
+                return true
+            }
+            if event.charactersIgnoringModifiers == "/", !flags.contains(.command) {
+                model.isFiltering = true
+                return true
+            }
             switch event.keyCode {
             case 36, 76: // return, enter
                 if let entry = selectedEntries.first { Task { await model.open(entry) } }
+                return true
+            case 49: // space -> Quick Look
+                toggleQuickLook()
                 return true
             case 51, 117: // delete, forward delete
                 confirmDelete()
                 return true
             case 53: // escape
+                if model.isFiltering {
+                    model.filterQuery = ""
+                    model.isFiltering = false
+                    return true
+                }
                 onClose()
                 return true
             case 126 where event.modifierFlags.contains(.command): // ⌘↑
@@ -185,6 +205,44 @@ struct FileTableView: NSViewRepresentable {
 
         /// Arrows, Tab, Page Up/Down, Home and End.
         static let tableKeys: Set<UInt16> = [123, 124, 125, 126, 48, 116, 121, 115, 119]
+
+        // MARK: Quick Look
+
+        func toggleQuickLook() {
+            if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared()?.isVisible == true {
+                QLPreviewPanel.shared()?.orderOut(nil)
+                return
+            }
+            let files = selectedEntries.filter { !$0.isDirectory }
+            guard !files.isEmpty else { return }
+            Task { @MainActor in
+                var urls: [URL] = []
+                for file in files {
+                    if let url = try? await model.previewFileURL(for: file) {
+                        urls.append(url)
+                    }
+                }
+                guard !urls.isEmpty else { return }
+                self.previewURLs = urls
+                guard let panel = QLPreviewPanel.shared() else { return }
+                panel.dataSource = self
+                panel.delegate = self
+                panel.reloadData()
+                panel.makeKeyAndOrderFront(nil)
+            }
+        }
+
+        nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+            MainActor.assumeIsolated { previewURLs.count }
+        }
+
+        nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+            let url: URL? = MainActor.assumeIsolated {
+                guard previewURLs.indices.contains(index) else { return nil }
+                return previewURLs[index]
+            }
+            return url as NSURL?
+        }
 
         // MARK: Clipboard (⌘C / ⌘V and the context menu)
 
@@ -214,6 +272,14 @@ struct FileTableView: NSViewRepresentable {
             let provider = NSFilePromiseProvider(fileType: type.identifier, delegate: self)
             provider.userInfo = entry
             return provider
+        }
+
+        func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+            guard model.isRemote else { return }
+            let paths = rowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].path : nil }
+            if !paths.isEmpty {
+                session.draggingPasteboard.setString(paths.joined(separator: "\n"), forType: HarborTerminalView.remotePathPasteboardType)
+            }
         }
 
         nonisolated func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
@@ -282,6 +348,10 @@ struct FileTableView: NSViewRepresentable {
             }
             if !selection.isEmpty {
                 add("Open", #selector(menuOpen))
+                if selection.contains(where: { !$0.isDirectory }) {
+                    add("Quick Look", #selector(menuQuickLook))
+                    add("Open in Default Editor", #selector(menuOpenInEditor))
+                }
                 add(selection.count == 1 ? "Copy “\(selection[0].name)”" : "Copy \(selection.count) Items", #selector(menuCopy))
                 add(model.isRemote ? "Download to Downloads" : "Copy to Downloads", #selector(menuDownload))
                 add("Download To…", #selector(menuDownloadTo))
@@ -307,6 +377,12 @@ struct FileTableView: NSViewRepresentable {
         }
 
         @objc private func menuOpen() { selectedEntries.forEach { entry in Task { await model.open(entry) } } }
+        @objc private func menuQuickLook() { toggleQuickLook() }
+        @objc private func menuOpenInEditor() {
+            selectedEntries.filter { !$0.isDirectory }.forEach { entry in
+                Task { await model.openInDefaultEditor(entry) }
+            }
+        }
         @objc private func menuDownload() { model.download(selectedEntries, to: model.downloadsDirectory, reveal: true) }
         @objc private func menuCopyPath() { if let entry = selectedEntries.first { model.copyPath(entry) } }
         @objc private func menuChangeDirectory() { if let entry = selectedEntries.first { model.changeTerminalDirectory(to: entry.path) } }

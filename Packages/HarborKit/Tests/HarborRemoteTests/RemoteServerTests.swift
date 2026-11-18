@@ -201,6 +201,20 @@ struct RemoteServerTests {
         #expect(locked.headers["retry-after"] != nil)
     }
 
+    @Test func locksOutRotatingForwardedIPBruteForce() async throws {
+        let fixture = try await Fixture.start()
+        defer { Task { await fixture.stop() } }
+        for attempt in 0..<15 {
+            let headers = ["Origin": "http://127.0.0.1:\(fixture.port)", "CF-Connecting-IP": "198.51.100.\(attempt + 1)"]
+            let response = try RawHTTP.send(port: fixture.port, method: "POST", path: "/api/login", headers: headers, body: #"{"token":"guess"}"#)
+            #expect(response.status == 401)
+        }
+        let freshIPHeaders = ["Origin": "http://127.0.0.1:\(fixture.port)", "CF-Connecting-IP": "198.51.100.250"]
+        let locked = try RawHTTP.send(port: fixture.port, method: "POST", path: "/api/login", headers: freshIPHeaders,
+                                      body: #"{"token":"\#(fixture.token)"}"#)
+        #expect(locked.status == 429)
+    }
+
     @Test func rotatingTheTokenSignsEveryoneOut() async throws {
         let fixture = try await Fixture.start()
         defer { Task { await fixture.stop() } }

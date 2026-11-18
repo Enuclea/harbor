@@ -36,8 +36,12 @@ public struct AppPaths: Sendable {
     /// Files copied from remote hosts, held here while they're on the clipboard.
     public var fileClipboard: URL { applicationSupport.appending(path: "Clipboard", directoryHint: .isDirectory) }
     public var shellIntegration: URL { applicationSupport.appending(path: "shell", directoryHint: .isDirectory) }
+    /// Local read-only checkout of the configured GitHub scripts repository.
+    public var githubScripts: URL { applicationSupport.appending(path: "github-scripts", directoryHint: .isDirectory) }
     public var runtime: URL { applicationSupport.appending(path: "run", directoryHint: .isDirectory) }
     public var controlSocket: URL { runtime.appending(path: "control.sock") }
+    /// Ephemeral `0600` private key file materialized from Keychain only during `git` operations.
+    public var githubDeployKey: URL { runtime.appending(path: "github_readonly_key") }
     public var sessionRecordings: URL { logs.appending(path: "Sessions", directoryHint: .isDirectory) }
     public var auditLog: URL { logs.appending(path: "audit.jsonl") }
     public var sshDirectory: URL { home.appending(path: ".ssh", directoryHint: .isDirectory) }
@@ -45,7 +49,7 @@ public struct AppPaths: Sendable {
 
     /// Creates every directory Harbor writes to. Private directories get `0700`.
     public func ensureDirectories(fileManager: FileManager = .default) throws {
-        for directory in [applicationSupport, logs, sessionRecordings, shellIntegration] {
+        for directory in [applicationSupport, logs, sessionRecordings, shellIntegration, githubScripts] {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         for privateDirectory in [runtime, sshDirectory, sshControl, fileClipboard] {

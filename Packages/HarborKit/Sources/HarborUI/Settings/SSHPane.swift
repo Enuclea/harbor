@@ -21,6 +21,8 @@ struct SSHPane: View {
                 Stepper(value: $store.settings.ssh.serverAliveInterval, in: 0...300, step: 5) {
                     LabeledContent("Keep-alive interval", value: store.settings.ssh.serverAliveInterval == 0 ? "Off" : "\(store.settings.ssh.serverAliveInterval) s")
                 }
+                Toggle("Automatically reconnect dropped SSH sessions", isOn: $store.settings.ssh.autoReconnectDroppedSessions)
+                Footnote("When an SSH connection drops unexpectedly (exit status 255), Harbor automatically retries once after a short backoff.")
             }
             Section("Keys and agent") {
                 Toggle("Forward agent to every host", isOn: $store.settings.ssh.forwardAgentByDefault)

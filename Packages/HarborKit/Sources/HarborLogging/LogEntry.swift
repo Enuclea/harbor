@@ -4,7 +4,7 @@ import HarborCore
 /// Subsystems that log. Each maps to an `os.Logger` category, so Console.app can filter
 /// by `subsystem:dev.harbor.Harbor category:ssh`.
 public enum LogCategory: String, Codable, Sendable, CaseIterable {
-    case app, session, pty, shell, ssh, sftp, control, mcp, remote, tunnel, doctor, settings, ui
+    case app, session, pty, shell, ssh, sftp, control, mcp, assist, remote, tunnel, doctor, settings, ui
 }
 
 public struct LogEntry: Codable, Sendable, Identifiable, Hashable {

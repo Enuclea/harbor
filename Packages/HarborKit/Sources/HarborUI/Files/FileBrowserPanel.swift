@@ -5,11 +5,17 @@ import SwiftUI
 struct FileBrowserPanel: View {
     @Bindable var model: FileBrowserModel
     let onClose: () -> Void
+    @State private var draftPath = ""
+    @FocusState private var pathFocused: Bool
+    @FocusState private var filterFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             header
             breadcrumbs
+            if model.isFiltering || !model.filterQuery.isEmpty {
+                filterBar
+            }
             Divider().opacity(0.5)
             ZStack {
                 FileTableView(model: model, onClose: onClose)
@@ -32,6 +38,17 @@ struct FileBrowserPanel: View {
             loadURLs(from: providers) { urls in Task { await model.upload(urls) } }
             return true
         }
+        .onChange(of: model.isEditingPath) {
+            if model.isEditingPath {
+                draftPath = model.path
+                pathFocused = true
+            }
+        }
+        .onChange(of: model.isFiltering) {
+            if model.isFiltering {
+                filterFocused = true
+            }
+        }
     }
 
     private var header: some View {
@@ -42,6 +59,15 @@ struct FileBrowserPanel: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
+            Button {
+                model.isFiltering.toggle()
+                if !model.isFiltering {
+                    model.filterQuery = ""
+                }
+            } label: {
+                Image(systemName: model.isFiltering || !model.filterQuery.isEmpty ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            }
+            .help("Filter files (/)")
             Button { model.showHidden.toggle() } label: {
                 Image(systemName: model.showHidden ? "eye" : "eye.slash")
             }
@@ -59,26 +85,97 @@ struct FileBrowserPanel: View {
         .padding(.bottom, 6)
     }
 
+    @ViewBuilder
     private var breadcrumbs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                Button { Task { await model.goUp() } } label: { Image(systemName: "chevron.up") }
-                    .buttonStyle(.borderless)
-                    .help("Enclosing folder (⌘↑)")
-                    .disabled(model.path == "/" || model.path.isEmpty)
-                ForEach(Array(RemotePath.breadcrumbs(model.path).enumerated()), id: \.offset) { index, crumb in
-                    if index > 0 {
-                        Image(systemName: "chevron.compact.right").foregroundStyle(.tertiary).font(.caption)
+        if model.isEditingPath {
+            HStack(spacing: 6) {
+                Image(systemName: "folder").foregroundStyle(.secondary).font(.caption)
+                TextField("Go to folder…", text: $draftPath)
+                    .textFieldStyle(.plain)
+                    .font(.callout.monospaced())
+                    .focused($pathFocused)
+                    .onSubmit {
+                        let target = draftPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                        model.isEditingPath = false
+                        if !target.isEmpty {
+                            Task { await model.load(target) }
+                        }
                     }
-                    Button(crumb.name == "/" ? "/" : crumb.name) { Task { await model.load(crumb.path) } }
-                        .buttonStyle(.borderless)
-                        .font(.callout)
-                        .foregroundStyle(crumb.path == model.path ? .primary : .secondary)
+                    .onKeyPress(.escape) {
+                        model.isEditingPath = false
+                        return .handled
+                    }
+                Button {
+                    model.isEditingPath = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
+                .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        } else {
+            HStack(spacing: 4) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        Button { Task { await model.goUp() } } label: { Image(systemName: "chevron.up") }
+                            .buttonStyle(.borderless)
+                            .help("Enclosing folder (⌘↑)")
+                            .disabled(model.path == "/" || model.path.isEmpty)
+                        ForEach(Array(RemotePath.breadcrumbs(model.path).enumerated()), id: \.offset) { index, crumb in
+                            if index > 0 {
+                                Image(systemName: "chevron.compact.right").foregroundStyle(.tertiary).font(.caption)
+                            }
+                            Button(crumb.name == "/" ? "/" : crumb.name) { Task { await model.load(crumb.path) } }
+                                .buttonStyle(.borderless)
+                                .font(.callout)
+                                .foregroundStyle(crumb.path == model.path ? .primary : .secondary)
+                        }
+                    }
+                }
+                Button {
+                    draftPath = model.path
+                    model.isEditingPath = true
+                } label: {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Go to Folder… (⇧⌘G)")
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Filter current folder…", text: $model.filterQuery)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .focused($filterFocused)
+                .onKeyPress(.escape) {
+                    model.filterQuery = ""
+                    model.isFiltering = false
+                    return .handled
+                }
+            if !model.filterQuery.isEmpty {
+                Button {
+                    model.filterQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
     private func errorView(_ message: String) -> some View {

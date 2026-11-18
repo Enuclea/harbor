@@ -62,13 +62,16 @@ public final class SessionPipeline: Sendable {
     }
 
     /// Called for every chunk read from the PTY.
-    func ingest(_ data: Data) {
+    func ingest(_ data: Data, markActivity: Bool = true) {
         let (subscribers, events, flagActivity, recorder, handlers) = state.withLock { state in
             state.replay.append(data)
             for key in state.captures.keys { state.captures[key]?.append(data) }
-            state.lastOutput = .now
-            let flag = !state.activityFlagged
-            state.activityFlagged = true
+            var flag = false
+            if markActivity {
+                state.lastOutput = .now
+                flag = !state.activityFlagged
+                state.activityFlagged = true
+            }
             return (Array(state.subscribers.values), state.scanner.scan(data), flag, state.recorder, state.handlers)
         }
         for subscriber in subscribers { subscriber(data) }

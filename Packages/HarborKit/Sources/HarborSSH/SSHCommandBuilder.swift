@@ -53,7 +53,8 @@ public struct SSHCommandBuilder: Sendable {
 
     /// The login for a terminal tab.
     public func interactive(_ host: HostProfile) -> CommandSpec {
-        var arguments = sharingOptions(master: "auto") + keepAliveOptions + environmentOptions + hostOptions(host)
+        var arguments = sharingOptions(master: "auto") + keepAliveOptions + ["-o", "ConnectTimeout=15"]
+            + environmentOptions + hostOptions(host) + autoForwardOptions(host)
         var remoteCommand = host.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if remoteCommand.isEmpty, host.remoteIntegration, host.remoteIntegrationMarker {
             remoteCommand = Self.markedLoginShell(promptName: host.promptName)
@@ -88,6 +89,53 @@ public struct SSHCommandBuilder: Sendable {
     /// Closes the shared connection for `host`.
     public func controlExit(_ host: HostProfile) -> CommandSpec {
         CommandSpec(sshPath, ["-o", "ControlPath=\(controlPath)"] + hostOptions(host) + ["-O", "exit", "--", host.hostname])
+    }
+
+    /// Requests a live port forward (`-L`, `-R`) or dynamic SOCKS5 proxy (`-D`) on the existing
+    /// shared master connection (`ssh -O forward ...`).
+    public func controlForward(_ rule: PortForwardRule, on host: HostProfile) -> CommandSpec {
+        let args = ["-o", "ControlPath=\(controlPath)"] + hostOptions(host)
+            + ["-O", "forward"] + rule.sshArguments + ["--", host.hostname]
+        return CommandSpec(sshPath, args)
+    }
+
+    /// Cancels a live port forward (`-L`, `-R`) or dynamic SOCKS5 proxy (`-D`) on the existing
+    /// shared master connection (`ssh -O cancel ...`).
+    public func controlCancel(_ rule: PortForwardRule, on host: HostProfile) -> CommandSpec {
+        let args = ["-o", "ControlPath=\(controlPath)"] + hostOptions(host)
+            + ["-O", "cancel"] + rule.sshArguments + ["--", host.hostname]
+        return CommandSpec(sshPath, args)
+    }
+
+    /// Evaluates OpenSSH configuration (`ssh -G`) for `host` to resolve aliases, ports, and proxy jumps.
+    public func resolveConfig(_ host: HostProfile) -> CommandSpec {
+        CommandSpec(sshPath, hostOptions(host) + ["-G", "--", host.hostname])
+    }
+
+    /// Parses the output of `ssh -G` to extract the effective target hostname, port, and whether a proxy/jump is active.
+    public static func parseEffectiveTarget(from sshGOutput: String, fallback: HostProfile) -> (hostname: String, port: Int, hasProxyOrJump: Bool) {
+        var hostname = fallback.hostname
+        var port = fallback.port ?? 22
+        var hasProxyOrJump = !(fallback.jumpHost ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        for rawLine in sshGOutput.split(whereSeparator: \.isNewline) {
+            let parts = rawLine.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            let val = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "hostname":
+                if !val.isEmpty { hostname = val }
+            case "port":
+                if let p = Int(val) { port = p }
+            case "proxyjump", "proxycommand":
+                if !val.isEmpty, val.lowercased() != "none" {
+                    hasProxyOrJump = true
+                }
+            default:
+                break
+            }
+        }
+        return (hostname, port, hasProxyOrJump)
     }
 
     /// Installs a public key on `host`. Runs in a visible tab so the user can answer any
@@ -140,6 +188,13 @@ public struct SSHCommandBuilder: Sendable {
         if let jump = host.jumpHost, !jump.isEmpty { options += ["-J", jump] }
         if host.forwardAgent || forwardAgentByDefault { options.append("-A") }
         return options
+    }
+
+    /// Port forwards and SOCKS proxies configured to start automatically when connecting to `host`.
+    private func autoForwardOptions(_ host: HostProfile) -> [String] {
+        host.portForwards
+            .filter { $0.autoStart && HostProfileValidator.isValidForward($0) }
+            .flatMap(\.sshArguments)
     }
 }
 

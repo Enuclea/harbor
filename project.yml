@@ -43,7 +43,7 @@ targets:
         product: Sparkle
       - target: harbor-mcp
         embed: true
-        codeSign: true
+        codeSign: false
         copy:
           destination: executables
 

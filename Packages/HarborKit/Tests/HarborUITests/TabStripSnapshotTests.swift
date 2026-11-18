@@ -52,4 +52,28 @@ struct TabStripSnapshotTests {
         #expect(TabItemState.userAtHost(in: "dan@nexus-tx: ~/src") == "dan@nexus-tx")
         #expect(TabItemState.userAtHost(in: "vim README.md") == nil)
     }
+
+    @Test func terminalFindModelSearchesAndCyclesMatches() {
+        let model = TerminalFindModel()
+        let lines = [
+            "line 0: hello world",
+            "line 1: Error: ECONNREFUSED 127.0.0.1:5432",
+            "line 2: all good",
+            "line 3: error: timeout after 15s",
+        ]
+        model.query = "error"
+        model.caseSensitive = false
+        model.search(in: lines)
+        #expect(model.matches.count == 2)
+        #expect(model.matches[model.currentIndex].row == 3)
+        model.findNext()
+        #expect(model.matches[model.currentIndex].row == 1)
+        model.findNext()
+        #expect(model.matches[model.currentIndex].row == 3)
+
+        model.caseSensitive = true
+        model.search(in: lines)
+        #expect(model.matches.count == 1)
+        #expect(model.matches[model.currentIndex].row == 3)
+    }
 }

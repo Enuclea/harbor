@@ -1,4 +1,5 @@
 import AppKit
+import HarborAssist
 import HarborCore
 import HarborDoctor
 import HarborLogging
@@ -13,6 +14,8 @@ struct LogsPane: View {
     @State private var category: LogCategory?
     @State private var exporting = false
     @State private var status: String?
+    @State private var analyzingLogs = false
+    @State private var aiSummary: AssistResult?
 
     private var filtered: [LogEntry] {
         feed.entries.reversed().filter { entry in
@@ -62,15 +65,56 @@ struct LogsPane: View {
                 }
                 .frame(width: 160)
                 Spacer()
-                Button("Clear") { feed.clear() }
+                if store.settings.ai.onboard.enabled {
+                    if analyzingLogs {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button {
+                        Task { await analyzeFilteredLogs() }
+                    } label: {
+                        Label("Explain with AI", systemImage: "sparkles")
+                    }
+                    .disabled(filtered.isEmpty || analyzingLogs)
+                }
+                Button("Clear") { feed.clear(); aiSummary = nil }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
+
+            if let aiSummary {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "sparkles").foregroundStyle(.purple)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(aiSummary.explanation)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                        Text("Used \(aiSummary.usage.totalTokens) tokens")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button { self.aiSummary = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                }
+                .padding(12)
+                .background(Color.purple.opacity(0.08))
+            }
 
             List(filtered.prefix(1_000)) { entry in
                 LogRow(entry: entry)
             }
             .listStyle(.plain)
+        }
+    }
+
+    private func analyzeFilteredLogs() async {
+        analyzingLogs = true
+        defer { analyzingLogs = false }
+        let sample = filtered.prefix(60).reversed().map(\.formatted).joined(separator: "\n")
+        do {
+            aiSummary = try await services.assist.explainLogSelection(sample)
+        } catch {
+            status = error.localizedDescription
         }
     }
 

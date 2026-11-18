@@ -80,7 +80,7 @@ final class FileClipboard {
     }
 
     private func stagingFinished(folder: URL, transfers started: [Transfer]) {
-        guard staging?.folder == folder else { return } // superseded by a newer copy
+        guard let current = staging, current.folder == folder, !current.transfers.isEmpty else { return } // superseded or already finished
         let urls = started.compactMap(\.resultURL)
         guard urls.count == started.count else {
             contents = nil
@@ -103,8 +103,9 @@ final class FileClipboard {
 
     /// The files to paste, waiting for a copy that's still downloading.
     func itemsToPaste() async -> [URL] {
-        if let pending = staging?.transfers {
-            for transfer in pending { await transfer.waitUntilDone() }
+        if let current = staging, !current.transfers.isEmpty {
+            for transfer in current.transfers { await transfer.waitUntilDone() }
+            stagingFinished(folder: current.folder, transfers: current.transfers)
         }
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         if pasteboard.changeCount != ownChangeCount, contents?.source != nil, contents?.isStaging == false {

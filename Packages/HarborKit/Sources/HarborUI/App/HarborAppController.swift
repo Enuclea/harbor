@@ -3,6 +3,7 @@ import Carbon
 import HarborControl
 import HarborCore
 import HarborDoctor
+import HarborHostSetup
 import HarborLogging
 import HarborSessions
 import HarborShell
@@ -40,6 +41,7 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
         super.init()
         services.actions = self
         services.sessions.presenter = windows
+        services.sessions.onSessionEnded = { [weak self] in self?.sessionEnded($0) }
         let approvals = ApprovalPresenter(windows: windows)
         self.approvals = approvals
         services.control.approver = approvals
@@ -56,7 +58,12 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
         applyPrompt()
         updateMCPService()
         Task { await services.remote.apply(services.settings.settings.remote) }
+        if services.settings.settings.github.autoPullOnLaunch,
+           !services.settings.settings.github.repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Task { _ = try? await services.githubScripts.sync() }
+        }
         services.settings.startWatchingForExternalChanges()
+        services.hosts.startWatchingForExternalChanges()
         observeSettings()
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
             Task { @MainActor in self?.windows.applyAppearance() }
@@ -298,16 +305,43 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     }
 
     func connect(to host: HostProfile) {
+        let effective = services.hosts.host(id: host.id) ?? host
         do {
-            try HostProfileValidator.validate(host)
-            services.sessions.open(.ssh(host), placement: windows.hasWindows ? .newTab : .newWindow)
+            try HostProfileValidator.validate(effective)
+            if services.hosts.host(id: effective.id) == nil {
+                recordRecentDestination(effective)
+            }
+            services.sessions.open(.ssh(effective), placement: windows.hasWindows ? .newTab : .newWindow)
         } catch {
-            showAlert("Can't connect to \(host.name)", error.localizedDescription)
+            showAlert("Can't connect to \(effective.name)", error.localizedDescription)
         }
+    }
+
+    private func recordRecentDestination(_ host: HostProfile) {
+        var recents = services.settings.settings.ssh.recentDestinations
+        recents.removeAll { $0.destinationLabel == host.destinationLabel }
+        recents.insert(host, at: 0)
+        if recents.count > 8 {
+            recents = Array(recents.prefix(8))
+        }
+        services.settings.settings.ssh.recentDestinations = recents
     }
 
     func runInNewTab(_ command: CommandSpec, title: String) {
         services.sessions.open(.command(command, title: title), placement: windows.hasWindows ? .newTab : .newWindow)
+    }
+
+    func runPlaybookInActiveTab(_ playbook: ScriptPlaybook, variables: [String: String], executeImmediately: Bool) {
+        if !windows.hasWindows {
+            openLocalTab(in: nil, placement: .newWindow)
+        }
+        guard let controller = windows.keyController ?? windows.controllersInOrder.first,
+              let container = controller.selectedContainer else { return }
+        controller.window?.makeKeyAndOrderFront(nil)
+        container.ensureAssistHost()
+        Task {
+            await container.assistModel.executePlaybook(playbook, variables: variables, executeImmediately: executeImmediately)
+        }
     }
 
     func perform(_ remedy: Remedy) {
@@ -333,6 +367,7 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
 
     @objc func showSettings(_ sender: Any?) { openSettings(section: nil) }
     @objc func showHosts(_ sender: Any?) { openSettings(section: .hosts) }
+    @objc func showGitHubScripts(_ sender: Any?) { openSettings(section: .github) }
     @objc func showDiagnostics(_ sender: Any?) { openSettings(section: .diagnostics) }
     @objc func showAssistants(_ sender: Any?) { openSettings(section: .assistants) }
     @objc func showRemoteAccess(_ sender: Any?) { openSettings(section: .remote) }
@@ -345,6 +380,10 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
 
     @objc func newTab(_ sender: Any?) {
         windows.openTab(in: windows.keyController)
+    }
+
+    @objc func reopenClosedTab(_ sender: Any?) {
+        windows.reopenLastClosedTab()
     }
 
     @objc func connectFromMenu(_ sender: NSMenuItem) {
@@ -371,6 +410,8 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
             return true
         case #selector(checkForUpdates(_:)):
             return updater?.canCheckForUpdates ?? false
+        case #selector(reopenClosedTab(_:)):
+            return windows.canReopenClosedTab
         default:
             return true
         }
@@ -391,6 +432,15 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
     private func sessionEnded(_ session: TerminalSession) {
         guard case .exited(let status) = session.state, !status.isClean, session.kind.host != nil else { return }
         log.info("ssh session to \(session.kind.host?.name ?? "?") ended: \(status)")
+        if status.exitCode == 255,
+           services.settings.settings.ssh.autoReconnectDroppedSessions,
+           Date().timeIntervalSince(session.createdAt) > 10 {
+            Task { @MainActor [weak session] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let session, !session.state.isRunning else { return }
+                session.restart()
+            }
+        }
     }
 
     private func showAlert(_ title: String, _ message: String) {
@@ -404,3 +454,4 @@ public final class HarborAppController: NSObject, AppActions, NSMenuItemValidati
         }
     }
 }
+

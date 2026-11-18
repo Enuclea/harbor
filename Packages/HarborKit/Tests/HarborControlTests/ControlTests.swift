@@ -52,4 +52,18 @@ struct ControlPolicyTests {
         }
         #expect(ControlPolicy.decide(.readScreen, client: browser, settings: settings) == .allow)
     }
+
+    @Test func safeReadOnlyCommandAllowlist() {
+        var settings = AppSettings()
+        settings.ai.autoAllowReadOnlyCommands = true
+        #expect(ControlPolicy.decide(.sendInput, detail: "git status", client: assistant, settings: settings) == .allow)
+        #expect(ControlPolicy.decide(.sendInput, detail: "ls -la /tmp", client: assistant, settings: settings) == .allow)
+        // Reject chaining, redirection, subshells, and destructive flags
+        #expect(ControlPolicy.decide(.sendInput, detail: "git status; rm -rf /", client: assistant, settings: settings) == .ask)
+        #expect(ControlPolicy.decide(.sendInput, detail: "ls -la | sh", client: assistant, settings: settings) == .ask)
+        #expect(ControlPolicy.decide(.sendInput, detail: "cat file > out", client: assistant, settings: settings) == .ask)
+        #expect(ControlPolicy.decide(.sendInput, detail: "echo $(whoami)", client: assistant, settings: settings) == .ask)
+        #expect(ControlPolicy.decide(.sendInput, detail: "find . -delete", client: assistant, settings: settings) == .ask)
+        #expect(ControlPolicy.decide(.sendInput, detail: "rm -rf build", client: assistant, settings: settings) == .ask)
+    }
 }

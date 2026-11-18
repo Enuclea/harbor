@@ -232,7 +232,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122, 162, 
 .workspace {
   position: relative;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
 }
 
@@ -257,9 +257,36 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122, 162, 
   background: #0e1117;
 }
 
+.touch-keys {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--panel-solid);
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.touch-keys button {
+  padding: 6px 11px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.touch-keys button:active,
+.touch-keys button[aria-pressed="true"] {
+  background: rgba(122, 162, 247, 0.25);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .empty {
   position: absolute;
-  inset: 56px 0 0 0;
+  inset: 56px 0 40px 0;
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -269,7 +296,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122, 162, 
 .banner {
   position: absolute;
   left: 50%;
-  bottom: 20px;
+  bottom: 52px;
   transform: translateX(-50%);
   padding: 10px 16px;
   border-radius: 10px;

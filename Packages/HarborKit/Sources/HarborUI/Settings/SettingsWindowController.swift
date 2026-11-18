@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
-    case general, appearance, prompt, hosts, keys, ssh, assistants, remote, logs, diagnostics
+    case general, appearance, prompt, hosts, keys, ssh, github, assistants, remote, logs, diagnostics
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         case .hosts: "Hosts"
         case .keys: "SSH Keys"
         case .ssh: "SSH"
+        case .github: "GitHub"
         case .assistants: "AI & MCP"
         case .remote: "Remote Access"
         case .logs: "Logs"
@@ -30,6 +31,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         case .hosts: "server.rack"
         case .keys: "key"
         case .ssh: "network"
+        case .github: "arrow.triangle.branch"
         case .assistants: "sparkles"
         case .remote: "globe"
         case .logs: "list.bullet.rectangle"
@@ -117,6 +119,7 @@ struct SettingsRootView: View {
         case .hosts: HostsPane(library: services.hosts, services: services)
         case .keys: KeysPane(services: services)
         case .ssh: SSHPane(store: services.settings, services: services)
+        case .github: GitHubPane(store: services.settings, services: services)
         case .assistants: AssistantsPane(store: services.settings, services: services)
         case .remote: RemoteAccessPane(store: services.settings, coordinator: services.remote, services: services)
         case .logs: LogsPane(store: services.settings, feed: services.logFeed, services: services)

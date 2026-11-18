@@ -61,9 +61,18 @@ struct TerminalSocketBridge: Sendable {
                 }
             }
             group.addTask {
-                for await event in events where event == .sessionClosed(sessionID) {
-                    try await outbound.write(.text(Self.event("closed", "The tab was closed.")))
-                    return
+                for await event in events {
+                    switch event {
+                    case .sessionClosed(let closedID):
+                        if closedID == sessionID {
+                            try await outbound.write(.text(Self.event("closed", "The tab was closed.")))
+                            return
+                        } else {
+                            try await outbound.write(.text(Self.event("sessionsChanged", closedID)))
+                        }
+                    case .sessionOpened(let id), .sessionUpdated(let id):
+                        try await outbound.write(.text(Self.event("sessionsChanged", id)))
+                    }
                 }
             }
             try await group.next()

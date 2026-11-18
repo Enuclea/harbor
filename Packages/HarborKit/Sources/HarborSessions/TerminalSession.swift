@@ -1,8 +1,21 @@
 import Foundation
+import HarborControl
 import HarborCore
 import HarborLogging
 import HarborPTY
 import Observation
+
+/// An inline approval prompt displayed in a tab's overlay so MCP approvals don't steal window focus.
+public struct InlineApprovalPrompt: Identifiable, Sendable {
+    public let id = UUID()
+    public let request: ApprovalRequest
+    public let respond: @MainActor @Sendable (ApprovalDecision) -> Void
+
+    public init(request: ApprovalRequest, respond: @escaping @MainActor @Sendable (ApprovalDecision) -> Void) {
+        self.request = request
+        self.respond = respond
+    }
+}
 
 /// One terminal tab: a process under a PTY plus everything learned from its output.
 ///
@@ -11,8 +24,8 @@ import Observation
 @MainActor
 @Observable
 public final class TerminalSession: Identifiable {
-    public let id: SessionID
-    public let kind: SessionKind
+    public nonisolated let id: SessionID
+    public private(set) var kind: SessionKind
     public let createdAt = Date()
 
     public private(set) var state: SessionState = .starting
@@ -48,6 +61,15 @@ public final class TerminalSession: Identifiable {
     public private(set) var bellPending = false
     /// Anything has been printed yet (an SSH tab with no output is still connecting).
     public private(set) var hasOutput = false
+    /// Active non-modal approval request for this tab, if an MCP assistant is waiting for permission.
+    public var pendingApproval: InlineApprovalPrompt?
+    /// Tracks when the user dismissed the failure/continuation chip for `lastCommand?.startedAt`.
+    public var dismissedAssistForCommandAt: Date?
+    /// Structured `uname` and system environment profile (OS, distro, arch, package manager, tools)
+    /// used as JSON context when drafting or repairing AI commands.
+    public var systemProfile: SystemProfile?
+    /// Active SSH port forwards (`-L` / `-R`) and dynamic SOCKS5 proxies (`-D`) on this tab.
+    public var activePortForwards: [PortForwardRule] = []
 
     @ObservationIgnored public let pipeline = SessionPipeline()
     /// Supplied by the terminal view; used to answer `read_screen` precisely.
@@ -56,9 +78,14 @@ public final class TerminalSession: Identifiable {
     @ObservationIgnored var onUpdated: ((TerminalSession) -> Void)?
     /// Desktop notifications requested by programs (OSC 9 / OSC 777).
     @ObservationIgnored public var onNotification: ((_ title: String, _ body: String) -> Void)?
+    /// Called when an OSC 133 command completes, with the command line, elapsed duration, and exit code.
+    @ObservationIgnored public var onCommandCompleted: ((_ command: String?, _ duration: TimeInterval, _ exitCode: Int32?) -> Void)?
+    /// Called once when the session receives its first output byte (e.g. to trigger a background SSH system profile probe).
+    @ObservationIgnored public var onFirstOutput: ((TerminalSession) -> Void)?
 
     @ObservationIgnored private var process: PTYProcess?
-    @ObservationIgnored private let configuration: PTYProcess.Configuration?
+    @ObservationIgnored private var configuration: PTYProcess.Configuration?
+    @ObservationIgnored var configurationProvider: ((TerminalSession) -> (kind: SessionKind, configuration: PTYProcess.Configuration)?)?
     @ObservationIgnored private var launchError: String?
     @ObservationIgnored private var commandWaiters: [UUID: CheckedContinuation<CommandWait, Never>] = [:]
     @ObservationIgnored private let log = Log(.session)
@@ -72,6 +99,11 @@ public final class TerminalSession: Identifiable {
         self.launchError = launchError
         self.size = configuration?.size ?? .standard
         workingDirectory = kind == .localShell ? configuration?.workingDirectory : kind.host?.remoteDirectory
+        if kind == .localShell {
+            systemProfile = .currentLocal(cwd: workingDirectory)
+        } else if let host = kind.host {
+            activePortForwards = host.portForwards.filter(\.autoStart)
+        }
 
         pipeline.setHandlers(SessionPipeline.Handlers(
             events: { [weak self] events in
@@ -81,8 +113,12 @@ public final class TerminalSession: Identifiable {
             activity: { [weak self] in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        self?.hasUnseenActivity = true
-                        if self?.hasOutput == false { self?.hasOutput = true }
+                        guard let self else { return }
+                        self.hasUnseenActivity = true
+                        if !self.hasOutput {
+                            self.hasOutput = true
+                            self.onFirstOutput?(self)
+                        }
                     }
                 }
             }))
@@ -97,15 +133,35 @@ public final class TerminalSession: Identifiable {
             state = .failed(launchError ?? "This session could not be configured.")
             return
         }
+        emitActiveForwardsNoticeIfNeeded()
         launch(configuration)
     }
 
     /// Starts the same command again (Reconnect for SSH tabs, Restart for shells).
     public func restart() {
-        guard let configuration, !state.isRunning else { return }
-        pipeline.ingest(Data("\r\n\u{1B}[2m— restarted \(Date().formatted(date: .omitted, time: .standard)) —\u{1B}[0m\r\n".utf8))
+        guard !state.isRunning else { return }
+        if let updated = configurationProvider?(self) {
+            kind = updated.kind
+            configuration = updated.configuration
+        }
+        guard let configuration else { return }
+        pipeline.ingest(Data("\r\n\u{1B}[2m— restarted \(Date().formatted(date: .omitted, time: .standard)) —\u{1B}[0m\r\n".utf8), markActivity: false)
+        pipeline.resetActivity()
         process = nil
+        hasOutput = false
+        if let host = kind.host {
+            activePortForwards = host.portForwards.filter(\.autoStart)
+        }
+        emitActiveForwardsNoticeIfNeeded()
         launch(configuration)
+    }
+
+    private func emitActiveForwardsNoticeIfNeeded() {
+        guard kind.host != nil, !activePortForwards.isEmpty else { return }
+        let summary = activePortForwards.map(\.displaySummary).joined(separator: "  ·  ")
+        let label = activePortForwards.count == 1 ? "Redirect active" : "Redirects active"
+        let banner = "\u{1B}[2m\u{1B}[36m⇄ \(label):\u{1B}[0m\u{1B}[2m \(summary)  (⇧⌘L to manage)\u{1B}[0m\r\n"
+        pipeline.ingest(Data(banner.utf8), markActivity: false)
     }
 
     private func launch(_ configuration: PTYProcess.Configuration) {
@@ -141,6 +197,7 @@ public final class TerminalSession: Identifiable {
         isAtPrompt = false
         isStreamingOutput = false
         runningCommand = nil
+        activePortForwards.removeAll()
         resumeCommandWaiters(with: .sessionEnded)
         pipeline.setRecorder(nil)
         log.info("session \(id.shortDescription) \(status)")
@@ -152,6 +209,12 @@ public final class TerminalSession: Identifiable {
 
     public func send(_ data: Data) {
         guard state.isRunning else { return }
+        if case .ssh = kind, !hasOutput {
+            // While ssh is still in TCP/handshake setup (before any prompt, banner, or shell
+            // output), the local PTY is in cooked mode and would echo keystrokes onto a blank
+            // screen. Only pass Ctrl-C (0x03) through so the user can abort the connection.
+            guard data.contains(0x03) else { return }
+        }
         lastInputAt = .now
         process?.write(data)
     }
@@ -177,12 +240,33 @@ public final class TerminalSession: Identifiable {
         bellPending = true
     }
 
-    func noteAssistantActivity() {
+    public func noteAssistantActivity() {
         assistantActivityAt = Date()
     }
 
+    public func recordActiveForward(_ rule: PortForwardRule) {
+        activePortForwards.removeAll { $0.endpointKey == rule.endpointKey || $0.id == rule.id }
+        activePortForwards.append(rule)
+        onUpdated?(self)
+    }
+
+    public func removeActiveForward(id: UUID) {
+        activePortForwards.removeAll { $0.id == id }
+        onUpdated?(self)
+    }
+
+    /// Refreshes the embedded `HostProfile` when a saved host is edited while this tab is open.
+    public func refreshHostProfile(_ updated: HostProfile) {
+        guard case .ssh(let current) = kind, current.id == updated.id else { return }
+        kind = .ssh(updated)
+        if !state.isRunning {
+            activePortForwards = updated.portForwards.filter(\.autoStart)
+        }
+        onUpdated?(self)
+    }
+
     /// Records a command line typed on the user's behalf (by an assistant or the API).
-    func noteSubmittedCommand(_ line: String, fromAssistant: Bool) {
+    public func noteSubmittedCommand(_ line: String, fromAssistant: Bool) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("\n") else { return }
         lastCommandLine = String(trimmed.prefix(200))
@@ -256,7 +340,10 @@ public final class TerminalSession: Identifiable {
         for event in events {
             switch event.code {
             case 7:
-                if let path = Self.path(fromFileURL: event.payload) { workingDirectory = path }
+                if let path = Self.path(fromFileURL: event.payload) {
+                    workingDirectory = path
+                    systemProfile?.cwd = path
+                }
             case 0, 2:
                 programTitle = event.payload
             case 133:
@@ -289,8 +376,12 @@ public final class TerminalSession: Identifiable {
             let fields = payload.split(separator: ";")
             let code = fields.count > 1 ? Int32(fields[1]) : nil
             if lastCommand?.finishedAt == nil {
-                lastCommand?.finishedAt = Date()
+                let finished = Date()
+                lastCommand?.finishedAt = finished
                 lastCommand?.exitCode = code
+                if let started = lastCommand?.startedAt {
+                    onCommandCompleted?(lastCommandLine, finished.timeIntervalSince(started), code)
+                }
             }
             resumeCommandWaiters(with: .finished(exitCode: code))
         default:
@@ -304,6 +395,15 @@ public final class TerminalSession: Identifiable {
             let fields = value.split(separator: ";")
             shellIntegration = fields.first.map(String.init)
             shellIntegrationVersion = fields.first { $0.hasPrefix("version=") }.flatMap { Int($0.dropFirst("version=".count)) }
+            if let shellIntegration {
+                systemProfile?.shell = shellIntegration
+            }
+        } else if payload.hasPrefix("HarborSysInfo=") {
+            let encoded = String(payload.dropFirst("HarborSysInfo=".count))
+            if var profile = SystemProfile.decode(from: encoded) {
+                if profile.cwd == nil { profile.cwd = workingDirectory }
+                systemProfile = profile
+            }
         } else if payload.hasPrefix("HarborCommand=") {
             let encoded = payload.dropFirst("HarborCommand=".count)
             let command = String(encoded).removingPercentEncoding.map { String($0.prefix(200)) }
@@ -314,7 +414,9 @@ public final class TerminalSession: Identifiable {
             }
             pendingAssistantCommand = nil
         } else if payload.hasPrefix("CurrentDir=") {
-            workingDirectory = String(payload.dropFirst("CurrentDir=".count))
+            let dir = String(payload.dropFirst("CurrentDir=".count))
+            workingDirectory = dir
+            systemProfile?.cwd = dir
         }
     }
 

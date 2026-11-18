@@ -41,6 +41,7 @@ let package = Package(
             dependencies: ["HarborCore", "HarborLogging", "HarborPTY", "HarborShell", "HarborSSH", "HarborControl"]
         ),
         .target(name: "HarborMCP", dependencies: ["HarborCore", "HarborLogging", "HarborControl"]),
+        .target(name: "HarborAssist", dependencies: ["HarborCore", "HarborLogging"]),
         .target(
             name: "HarborRemote",
             dependencies: [
@@ -59,7 +60,7 @@ let package = Package(
             name: "HarborUI",
             dependencies: [
                 "HarborCore", "HarborLogging", "HarborPTY", "HarborShell", "HarborSSH", "HarborFiles",
-                "HarborControl", "HarborSessions", "HarborMCP", "HarborRemote", "HarborDoctor", "HarborHostSetup",
+                "HarborControl", "HarborSessions", "HarborMCP", "HarborAssist", "HarborRemote", "HarborDoctor", "HarborHostSetup",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ]
         ),
@@ -73,6 +74,7 @@ let package = Package(
         .testTarget(name: "HarborControlTests", dependencies: ["HarborControl"]),
         .testTarget(name: "HarborSessionsTests", dependencies: ["HarborSessions", "HarborShell", "HarborControl", "HarborSSH"]),
         .testTarget(name: "HarborMCPTests", dependencies: ["HarborMCP", "HarborMCPBridge"]),
+        .testTarget(name: "HarborAssistTests", dependencies: ["HarborAssist", "HarborCore"]),
         .testTarget(name: "HarborRemoteTests", dependencies: ["HarborRemote"]),
         .testTarget(name: "HarborDoctorTests", dependencies: ["HarborDoctor"]),
         .testTarget(name: "HarborUITests", dependencies: ["HarborUI", "HarborCore", "HarborSessions", "HarborFiles", "HarborSSH"]),

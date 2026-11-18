@@ -59,11 +59,26 @@
           <span id="tab-subtitle" class="muted"></span>
         </div>
         <div class="toolbar-actions">
+          <button id="fit-pty" class="secondary" title="Resize remote PTY to fit this browser window" disabled>Fit PTY</button>
           <button id="focus-on-mac" class="secondary" disabled>Show on Mac</button>
           <button id="close-tab" class="secondary danger" disabled>Close</button>
         </div>
       </header>
       <div id="terminal" class="terminal" aria-label="Terminal"></div>
+      <div id="touch-keys" class="touch-keys" aria-label="Terminal shortcut keys">
+        <button type="button" data-seq="&#x1b;">Esc</button>
+        <button type="button" data-seq="&#x09;">Tab</button>
+        <button type="button" id="ctrl-toggle" aria-pressed="false">Ctrl</button>
+        <button type="button" data-seq="&#x1b;[A">↑</button>
+        <button type="button" data-seq="&#x1b;[B">↓</button>
+        <button type="button" data-seq="&#x1b;[D">←</button>
+        <button type="button" data-seq="&#x1b;[C">→</button>
+        <button type="button" data-seq="|">|</button>
+        <button type="button" data-seq="/">/</button>
+        <button type="button" data-seq="-">-</button>
+        <button type="button" data-seq="~">~</button>
+        <button type="button" data-seq="&#x03;">^C</button>
+      </div>
       <div id="empty" class="empty">
         <p>Choose a tab, open a new one, or connect to a host.</p>
       </div>

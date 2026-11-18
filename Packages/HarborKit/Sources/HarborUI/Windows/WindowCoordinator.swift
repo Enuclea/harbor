@@ -1,12 +1,16 @@
 import AppKit
+import HarborAssist
 import HarborCore
 import HarborSessions
+import HarborSSH
+@preconcurrency import UserNotifications
 
 /// Presents sessions as tabs in terminal windows, moves tabs between windows, and
 /// reports visual order to automation.
 @MainActor
 final class WindowCoordinator: NSObject, SessionPresenting {
     private(set) var controllers: [TerminalWindowController] = []
+    private(set) var recentlyClosed: [SessionSnapshot] = []
     private weak var activeController: TerminalWindowController?
     private let services: AppServices
 
@@ -15,6 +19,7 @@ final class WindowCoordinator: NSObject, SessionPresenting {
     }
 
     var hasWindows: Bool { !controllers.isEmpty }
+    var canReopenClosedTab: Bool { !recentlyClosed.isEmpty }
     /// Set while quitting, so windows closing on the way out aren't saved over the quit state.
     var isTerminating = false
     /// The frame for the next new window (a restored window's saved frame).
@@ -34,6 +39,7 @@ final class WindowCoordinator: NSObject, SessionPresenting {
     // MARK: SessionPresenting
 
     func present(_ session: TerminalSession, placement: SessionPlacement) {
+        wireNotifications(for: session)
         if placement == .newTab, let target = keyController {
             target.adopt(session)
             target.window?.makeKeyAndOrderFront(nil)
@@ -73,6 +79,10 @@ final class WindowCoordinator: NSObject, SessionPresenting {
 
     // MARK: Lookup
 
+    func session(for id: SessionID?) -> TerminalSession? {
+        id.flatMap { services.sessions.session($0) }
+    }
+
     func controller(for session: TerminalSession) -> TerminalWindowController? {
         controllers.first { $0.contains(session) }
     }
@@ -86,7 +96,7 @@ final class WindowCoordinator: NSObject, SessionPresenting {
         return controller.window
     }
 
-    // MARK: Opening
+    // MARK: Opening & Reopening
 
     /// ⌘T / the strip's “+”: a local shell, in the current folder when configured.
     func openTab(in controller: TerminalWindowController?) {
@@ -107,6 +117,33 @@ final class WindowCoordinator: NSObject, SessionPresenting {
         if case .ssh(let host) = kind, let saved = services.hosts.host(id: host.id) { kind = .ssh(saved) }
         let directory = kind == .localShell ? session.workingDirectory : nil
         services.sessions.open(kind, workingDirectory: directory, placement: .newTab)
+    }
+
+    @discardableResult
+    func reopenLastClosedTab() -> TerminalSession? {
+        guard let snapshot = recentlyClosed.popLast() else { return nil }
+        let placement: SessionPlacement = hasWindows ? .newTab : .newWindow
+        let session: TerminalSession?
+        switch snapshot.kind {
+        case .local:
+            session = services.sessions.open(.localShell, workingDirectory: snapshot.workingDirectory, placement: placement)
+        case .host(let id):
+            if let host = services.hosts.host(id: id) {
+                session = services.sessions.open(.ssh(host), placement: placement)
+            } else {
+                session = nil
+            }
+        case .destination(let host):
+            session = services.sessions.open(.ssh(host), placement: placement)
+        }
+        session?.customTitle = snapshot.customTitle
+        return session
+    }
+
+    func reconnectAllDisconnected() {
+        for session in services.sessions.sessions where session.kind.host != nil && !session.state.isRunning {
+            session.restart()
+        }
     }
 
     // MARK: Moving tabs
@@ -152,6 +189,9 @@ final class WindowCoordinator: NSObject, SessionPresenting {
 
     /// The user closed one tab.
     func tabWasClosed(_ session: TerminalSession) {
+        if !isTerminating {
+            recordClosedSession(session)
+        }
         services.sessions.windowDidClose(for: session)
     }
 
@@ -165,7 +205,12 @@ final class WindowCoordinator: NSObject, SessionPresenting {
             let hosts = services.hosts
             SessionRestorer(paths: services.paths).save([state]) { hosts.host(id: $0) != nil }
         }
-        state.sessions.forEach { services.sessions.windowDidClose(for: $0) }
+        for session in state.sessions {
+            if !isTerminating {
+                recordClosedSession(session)
+            }
+            services.sessions.windowDidClose(for: session)
+        }
     }
 
     /// `frame`, if enough of it is on a connected screen to use (displays change between launches).
@@ -178,6 +223,127 @@ final class WindowCoordinator: NSObject, SessionPresenting {
 
     func applyAppearance() {
         controllers.forEach { $0.applyAppearance() }
+    }
+
+    // MARK: Notifications & History
+
+    private func recordClosedSession(_ session: TerminalSession) {
+        let kind: SessionSnapshot.Kind
+        switch session.kind {
+        case .localShell:
+            kind = .local
+        case .ssh(let host):
+            kind = services.hosts.host(id: host.id) != nil ? .host(host.id) : .destination(host)
+        case .command:
+            return
+        }
+        let snapshot = SessionSnapshot(
+            kind: kind,
+            workingDirectory: kind == .local ? session.workingDirectory : nil,
+            customTitle: session.customTitle
+        )
+        recentlyClosed.append(snapshot)
+        if recentlyClosed.count > 10 {
+            recentlyClosed.removeFirst(recentlyClosed.count - 10)
+        }
+    }
+
+    private func wireNotifications(for session: TerminalSession) {
+        session.onNotification = { [weak self, weak session] title, body in
+            guard let self, let session else { return }
+            self.postSystemNotification(title: title, body: body, sessionID: session.id)
+        }
+        session.onCommandCompleted = { [weak self, weak session] command, duration, exitCode in
+            guard let self, let session else { return }
+            self.handleCommandCompleted(command: command, duration: duration, exitCode: exitCode, in: session)
+        }
+        session.onFirstOutput = { [weak self] session in
+            self?.probeRemoteSystemProfileIfNeeded(for: session)
+        }
+    }
+
+    private func probeRemoteSystemProfileIfNeeded(for session: TerminalSession) {
+        guard let host = session.kind.host else { return }
+        let sshSettings = services.settings.settings.ssh
+        let controlDir = services.paths.sshControl
+        let executor = SSHCommandBuilder(settings: sshSettings, controlDirectory: controlDir).executor(for: host)
+        Task { @MainActor [weak session] in
+            // Give shell integration 400ms to emit HarborSysInfo first if installed; otherwise probe over ControlMaster.
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let session, session.systemProfile == nil else { return }
+            if let result = try? await executor(SystemProfile.remoteProbeCommand),
+               result.succeeded,
+               var profile = SystemProfile.decode(from: result.output) {
+                if let cwd = session.workingDirectory { profile.cwd = cwd }
+                session.systemProfile = profile
+            }
+        }
+    }
+
+    private func handleCommandCompleted(command: String?, duration: TimeInterval, exitCode: Int32?, in session: TerminalSession) {
+        let terminalSettings = services.settings.settings.terminal
+        guard terminalSettings.notifyOnLongCommandCompletion,
+              duration >= Double(max(1, terminalSettings.longCommandThresholdSeconds))
+        else { return }
+
+        let isVisible = (keyController?.selectedSession?.id == session.id)
+            && (keyController?.window?.isKeyWindow == true)
+            && NSApp.isActive
+        guard !isVisible else { return }
+
+        session.ringBell()
+        if !NSApp.isActive {
+            NSApp.requestUserAttention(.informationalRequest)
+        }
+
+        let cmdLabel = command ?? "Command"
+        let durationLabel = "\(Int(duration.rounded()))s"
+        let failed = (exitCode ?? 0) != 0 && exitCode != 130
+        let title = failed
+            ? "Command failed (exit \(exitCode!)) in \(session.title)"
+            : "Command finished in \(session.title)"
+        let baseBody = "\(cmdLabel) (\(durationLabel))"
+
+        if failed,
+           services.settings.settings.ai.onboard.enabled,
+           services.settings.settings.ai.onboard.smartBackgroundAlerts {
+            let output = ContextBudgeter.extractLastCommandOutput(from: session.pipeline.replay)
+            let context = AssistContext(
+                shell: session.shellIntegration ?? "zsh",
+                isRemote: session.kind.host != nil,
+                hostLabel: session.kind.host?.destinationLabel,
+                workingDirectory: session.workingDirectory,
+                lastCommand: command,
+                lastExitCode: exitCode,
+                rawOutput: output
+            )
+            let assist = services.assist
+            let sessionID = session.id
+            Task { @MainActor [weak self] in
+                if let summary = try? await assist.summarizeForAlert(context: context), !summary.isEmpty {
+                    self?.postSystemNotification(title: title, body: "\(baseBody) — \(summary)", sessionID: sessionID)
+                } else {
+                    self?.postSystemNotification(title: title, body: baseBody, sessionID: sessionID)
+                }
+            }
+        } else {
+            postSystemNotification(title: title, body: baseBody, sessionID: session.id)
+        }
+    }
+
+    private func postSystemNotification(title: String, body: String, sessionID: SessionID) {
+        // UNUserNotificationCenter requires a valid app bundle identifier.
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.userInfo = ["sessionID": sessionID.description]
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            center.add(request)
+        }
     }
 
     // MARK: Helpers
@@ -200,3 +366,4 @@ final class WindowCoordinator: NSObject, SessionPresenting {
         }
     }
 }
+

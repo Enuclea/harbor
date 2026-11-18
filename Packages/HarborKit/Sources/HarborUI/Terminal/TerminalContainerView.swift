@@ -16,9 +16,15 @@ import SwiftUI
 final class TerminalContainerView: NSView {
     let terminal: HarborTerminalView
     let binding: TerminalSessionBinding
+    let findModel: TerminalFindModel
+    let assistModel: CommandAssistModel
+    let portForwardModel: PortForwardModel
     private let session: TerminalSession
     private let services: AppServices
-    private let overlayHost: NSHostingView<SessionOverlay>
+    private var overlayHost: NSHostingView<SessionOverlay>!
+    private var findHost: NSHostingView<TerminalFindBar>?
+    private var assistHost: NSHostingView<CommandAssistBar>?
+    private var portForwardHost: NSHostingView<PortForwardBar>?
     private var flyoutHost: NSView?
     private var flyoutModel: FileBrowserModel?
     /// The strip the flyout occupies; zero-width while it's hidden. The terminal ends at its leading edge.
@@ -50,12 +56,58 @@ final class TerminalContainerView: NSView {
             frame: .zero, font: TerminalAppearance.font(for: settings.appearance, sizeDelta: 0), options: options)
         configuredTerminalSize = terminal.getOptimalFrameSize().size
         binding = TerminalSessionBinding(session: session, view: terminal, settings: services.settings)
-        overlayHost = NSHostingView(rootView: SessionOverlay(session: session, actions: services.actions))
+        findModel = TerminalFindModel(terminal: terminal)
+        assistModel = CommandAssistModel(session: session, services: services)
+        portForwardModel = PortForwardModel(session: session, services: services)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
+
+        findModel.onDismiss = { [weak self] in self?.focusTerminal() }
+        assistModel.onDismiss = { [weak self] in self?.focusTerminal() }
+        portForwardModel.onDismiss = { [weak self] in self?.focusTerminal() }
+        assistModel.onStageCommand = { [weak self] command in
+            guard let self else { return }
+            let cleaned = command.trimmingCharacters(in: .newlines)
+            self.terminal.send(txt: cleaned)
+            self.focusTerminal()
+        }
+        assistModel.onRunCommand = { [weak self] command in
+            guard let self else { return }
+            let cleaned = command.trimmingCharacters(in: .newlines)
+            self.session.noteSubmittedCommand(cleaned, fromAssistant: true)
+            self.terminal.send(txt: cleaned + "\r")
+            self.focusTerminal()
+        }
+
+        overlayHost = NSHostingView(rootView: SessionOverlay(
+            session: session,
+            services: services,
+            actions: services.actions,
+            onExplainFailure: { [weak self] _ in
+                guard let self else { return }
+                self.ensureAssistHost()
+                Task { await self.assistModel.explainLastFailure() }
+            },
+            onSuggestContinuation: { [weak self] in
+                guard let self else { return }
+                self.ensureAssistHost()
+                Task { await self.assistModel.suggestNextStep() }
+            },
+            onReconnectAll: { [weak self] in
+                self?.reconnectAllDisconnected()
+            }
+        ))
+
         wantsLayer = true
         layout(settings: settings)
         applyAppearance()
-        terminal.onFilesDropped = { [weak self] urls in self?.handleDrop(urls) ?? false }
+        terminal.onFilesDropped = { [weak self] urls, optionHeld in
+            self?.handleDrop(urls, optionHeld: optionHeld) ?? false
+        }
+        terminal.onExplainSelection = { [weak self] text in
+            guard let self else { return }
+            self.ensureAssistHost()
+            Task { await self.assistModel.explainSelection(text) }
+        }
     }
 
     @available(*, unavailable)
@@ -211,10 +263,89 @@ final class TerminalContainerView: NSView {
         layoutSubtreeIfNeeded()
     }
 
-    /// Files dropped on an SSH tab are uploaded to the remote directory; elsewhere their
-    /// paths are typed, as in Terminal.app.
-    private func handleDrop(_ urls: [URL]) -> Bool {
-        guard session.kind.host != nil else { return false }
+    // MARK: Find & AI Assist bars
+
+    func ensureFindHost() {
+        guard findHost == nil else { return }
+        let host = NSHostingView(rootView: TerminalFindBar(model: findModel))
+        host.sizingOptions = [.intrinsicContentSize]
+        host.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: terminal.topAnchor, constant: 10),
+            host.trailingAnchor.constraint(equalTo: terminal.trailingAnchor, constant: -14),
+        ])
+        findHost = host
+    }
+
+    func ensureAssistHost() {
+        guard assistHost == nil else { return }
+        let host = NSHostingView(rootView: CommandAssistBar(model: assistModel))
+        host.sizingOptions = [.intrinsicContentSize]
+        host.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: terminal.topAnchor, constant: 10),
+            host.centerXAnchor.constraint(equalTo: terminal.centerXAnchor),
+            host.widthAnchor.constraint(lessThanOrEqualTo: terminal.widthAnchor, constant: -16),
+        ])
+        assistHost = host
+    }
+
+    func toggleFindBar() {
+        ensureFindHost()
+        if !findModel.isVisible {
+            assistModel.isVisible = false
+            portForwardModel.isVisible = false
+        }
+        findModel.isVisible.toggle()
+        if !findModel.isVisible {
+            focusTerminal()
+        }
+    }
+
+    func toggleAssistBar() {
+        ensureAssistHost()
+        if !assistModel.isVisible {
+            findModel.isVisible = false
+            portForwardModel.isVisible = false
+        }
+        assistModel.toggle()
+    }
+
+    func ensurePortForwardHost() {
+        guard portForwardHost == nil else { return }
+        let host = NSHostingView(rootView: PortForwardBar(model: portForwardModel))
+        host.sizingOptions = [.intrinsicContentSize]
+        host.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: terminal.topAnchor, constant: 10),
+            host.trailingAnchor.constraint(equalTo: terminal.trailingAnchor, constant: -14),
+            host.leadingAnchor.constraint(greaterThanOrEqualTo: terminal.leadingAnchor, constant: 14),
+        ])
+        portForwardHost = host
+    }
+
+    func togglePortForwardBar() {
+        ensurePortForwardHost()
+        if !portForwardModel.isVisible {
+            findModel.isVisible = false
+            assistModel.isVisible = false
+        }
+        portForwardModel.toggle()
+    }
+
+    func reconnectAllDisconnected() {
+        for item in services.sessions.sessions where item.kind.host != nil && !item.state.isRunning {
+            item.restart()
+        }
+    }
+
+    /// Files dropped on an SSH tab are uploaded to the remote directory unless Option (⌥) is
+    /// held; elsewhere (or with Option held) their paths are typed, as in Terminal.app.
+    private func handleDrop(_ urls: [URL], optionHeld: Bool) -> Bool {
+        guard session.kind.host != nil, !optionHeld else { return false }
         if flyoutHost == nil { installFlyout() }
         if !isFlyoutVisible { toggleFlyout() }
         Task { await flyoutModel?.upload(urls) }
@@ -226,3 +357,4 @@ final class TerminalContainerView: NSView {
         Task { await flyoutModel?.deactivate() }
     }
 }
+

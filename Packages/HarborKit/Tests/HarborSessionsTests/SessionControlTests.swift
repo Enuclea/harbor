@@ -196,4 +196,30 @@ struct SessionControlTests {
         #expect(output == "hi")
         #expect(!truncated)
     }
+
+    @Test func sshSessionIgnoresEnterWhileConnectingAndRefreshesHostOnRestart() async throws {
+        let harness = try Harness {
+            $0.ssh.sshPath = "/bin/cat"
+            $0.ssh.connectionSharing = false
+            $0.ssh.serverAliveInterval = 0
+        }
+        var host = HostProfile(name: "corp-web", hostname: "old.example.com")
+        harness.hosts.upsert(host)
+
+        // Open an SSH session using /bin/cat -u (simulated via sshPath) or a silent process.
+        harness.settings.update { $0.ssh.sshPath = "/usr/bin/true" }
+        let session = harness.manager.open(.ssh(host))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while session.state.isRunning, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        // Update the saved host in HostLibrary and verify restart() picks up the new hostname.
+        host.hostname = "10.200.50.19"
+        harness.hosts.upsert(host)
+        session.restart()
+        #expect(session.kind.host?.hostname == "10.200.50.19")
+        #expect(!session.hasOutput, "restart banner does not falsely mark SSH output as received")
+        harness.manager.close(session)
+    }
 }

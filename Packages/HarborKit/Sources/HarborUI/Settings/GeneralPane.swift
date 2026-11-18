@@ -57,7 +57,7 @@ struct GeneralPane: View {
                 Toggle("Copy text when selected", isOn: $store.settings.terminal.copyOnSelect)
             }
 
-            Section("Bell") {
+            Section("Bell & notifications") {
                 Picker("Bell", selection: $store.settings.terminal.bell) {
                     Text("Off").tag(BellMode.none)
                     Text("Sound").tag(BellMode.sound)
@@ -65,6 +65,13 @@ struct GeneralPane: View {
                     Text("Sound and flash").tag(BellMode.soundAndVisual)
                 }
                 Toggle("Bounce the Dock icon for bells in background tabs", isOn: $store.settings.terminal.notifyOnBackgroundBell)
+                Toggle("Notify when a long command finishes in a background tab", isOn: $store.settings.terminal.notifyOnLongCommandCompletion)
+                if store.settings.terminal.notifyOnLongCommandCompletion {
+                    Stepper(value: $store.settings.terminal.longCommandThresholdSeconds, in: 5...600, step: 5) {
+                        LabeledContent("Minimum duration", value: "\(store.settings.terminal.longCommandThresholdSeconds) s")
+                    }
+                    Footnote("Requires shell integration. When Onboard AI Assist is enabled, failed background commands include a 1-line AI error summary.")
+                }
             }
 
             Section("Clipboard access for programs") {

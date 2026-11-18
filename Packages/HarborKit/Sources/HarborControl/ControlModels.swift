@@ -27,11 +27,13 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
     public let activity: String
     /// The command line currently running, when shell integration reports it.
     public let runningCommand: String?
+    /// Structured `uname` and system metadata (`os`, `kernel`, `arch`, `distro`, `packageManager`, `tools`, etc.).
+    public let systemProfile: SystemProfile?
 
     public init(id: String, index: Int, title: String, kind: String, host: String?, workingDirectory: String?,
                 foregroundProcess: String?, state: String, exitCode: Int32?, isFocused: Bool, columns: Int, rows: Int,
                 shellIntegration: String?, isAtPrompt: Bool, lastCommandExitCode: Int32?,
-                activity: String = "idle", runningCommand: String? = nil) {
+                activity: String = "idle", runningCommand: String? = nil, systemProfile: SystemProfile? = nil) {
         self.id = id
         self.index = index
         self.title = title
@@ -49,6 +51,7 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.lastCommandExitCode = lastCommandExitCode
         self.activity = activity
         self.runningCommand = runningCommand
+        self.systemProfile = systemProfile
     }
 }
 

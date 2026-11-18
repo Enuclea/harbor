@@ -65,11 +65,16 @@ struct TabItemState: Identifiable, Equatable {
     let integrationOffer: IntegrationOffer?
     /// For SSH tabs: whether the destination is in the host library (nil for local tabs).
     let hostSaved: Bool?
+    /// Whether an MCP assistant has been granted remembered input permission for this tab.
+    let hasRememberedAssistantApproval: Bool
+    /// Number of active SSH port forwards (`-L` / `-R`) or dynamic SOCKS5 proxies (`-D`) on this tab.
+    let activeForwardCount: Int
 
     init(id: SessionID, title: String, subtitle: String? = nil, subtitleIsCommand: Bool = false,
          failedExitCode: Int32? = nil, commandByAssistant: Bool = false, status: TabStatus, hostColor: HostColor = .none,
          isSelected: Bool, assistantActive: Bool = false, busySince: Date? = nil, tooltip: String = "",
-         integrationOffer: IntegrationOffer? = nil, hostSaved: Bool? = nil) {
+         integrationOffer: IntegrationOffer? = nil, hostSaved: Bool? = nil,
+         hasRememberedAssistantApproval: Bool = false, activeForwardCount: Int = 0) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -84,21 +89,28 @@ struct TabItemState: Identifiable, Equatable {
         self.tooltip = tooltip.isEmpty ? [title, subtitle].compactMap { $0 }.joined(separator: "\n") : tooltip
         self.integrationOffer = integrationOffer
         self.hostSaved = hostSaved
+        self.hasRememberedAssistantApproval = hasRememberedAssistantApproval
+        self.activeForwardCount = activeForwardCount
     }
 
     /// - Parameter savedHost: The library's current copy of the tab's host, so edits (name,
     ///   colour) show without reconnecting. Nil when the destination isn't saved.
     @MainActor
-    init(session: TerminalSession, isSelected: Bool, savedHost: HostProfile? = nil, now: Date = Date()) {
+    init(session: TerminalSession, isSelected: Bool, savedHost: HostProfile? = nil,
+         hasRememberedAssistantApproval: Bool = false, now: Date = Date()) {
         let activity = session.activity
         let status = Self.status(for: session, activity: activity, isSelected: isSelected)
         let busySince: Date? = if case .busy(let since, _) = activity { since } else { nil }
         let line = Self.secondLine(for: session, host: savedHost, activity: activity)
         let assistantActive = session.assistantActivityAt.map { now.timeIntervalSince($0) < 30 } ?? false
         let title = Self.firstLine(for: session, host: savedHost)
+        let forwards = session.activePortForwards
 
         var tooltip = [title]
         if case .ssh(let host) = session.kind { tooltip.append("SSH · \(host.destinationLabel)") }
+        if !forwards.isEmpty {
+            tooltip.append("Forwards: " + forwards.map(\.displaySummary).joined(separator: ", "))
+        }
         if let directory = session.workingDirectory { tooltip.append((directory as NSString).abbreviatingWithTildeInPath) }
         if let text = line.text { tooltip.append(line.isCommand ? "\(status == .busy ? "Running" : "Last command"): \(text)" : text) }
         if let code = line.failedExitCode { tooltip.append("Exited with status \(code)") }
@@ -111,7 +123,9 @@ struct TabItemState: Identifiable, Equatable {
             hostColor: (savedHost ?? session.kind.host)?.color ?? .none, isSelected: isSelected, assistantActive: assistantActive,
             busySince: busySince, tooltip: tooltip.joined(separator: "\n"),
             integrationOffer: Self.integrationOffer(for: session),
-            hostSaved: session.kind.host == nil ? nil : savedHost != nil)
+            hostSaved: session.kind.host == nil ? nil : savedHost != nil,
+            hasRememberedAssistantApproval: hasRememberedAssistantApproval,
+            activeForwardCount: forwards.count)
     }
 
     // MARK: Derivation
@@ -197,7 +211,19 @@ struct TabItemState: Identifiable, Equatable {
         switch session.kind {
         case .ssh(let original):
             let host = override ?? original
-            if case .starting = activity { return SecondLine(text: "Connecting…") }
+            let forwards = session.activePortForwards
+            if case .starting = activity {
+                if !forwards.isEmpty {
+                    return SecondLine(text: "Connecting · ⇄ " + forwards.map(\.displaySummary).joined(separator: ", "))
+                }
+                return SecondLine(text: "Connecting…")
+            }
+            if !forwards.isEmpty {
+                let summary = forwards.count == 1
+                    ? "⇄ \(forwards[0].displaySummary)"
+                    : "⇄ \(forwards.count) redirects (\(forwards[0].displaySummary)…)"
+                return SecondLine(text: summary)
+            }
             if let program = session.programTitle, let colon = program.firstIndex(of: ":") {
                 let path = program[program.index(after: colon)...].trimmingCharacters(in: .whitespaces)
                 if !path.isEmpty { return SecondLine(text: path) }

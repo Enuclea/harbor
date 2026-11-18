@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// On-disk shape of `hosts.json`.
-public struct HostDocument: Codable, Sendable {
+public struct HostDocument: Codable, Equatable, Sendable {
     public var version = 1
     public var hosts: [HostProfile] = []
 
@@ -18,11 +18,27 @@ public final class HostLibrary {
     public private(set) var hosts: [HostProfile]
 
     @ObservationIgnored private let store: JSONFileStore<HostDocument>
+    @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored public var onSaveError: (@MainActor (Error) -> Void)?
 
     public init(store: JSONFileStore<HostDocument>) {
         self.store = store
         hosts = store.load().value.hosts
+    }
+
+    public func startWatchingForExternalChanges() {
+        guard watcher == nil else { return }
+        let watcher = FileWatcher(url: store.url) { [weak self] in
+            Task { @MainActor in self?.reloadFromDisk() }
+        }
+        watcher.start()
+        self.watcher = watcher
+    }
+
+    private func reloadFromDisk() {
+        let loaded = store.load()
+        guard loaded.recoveredFrom == nil, loaded.value.hosts != hosts else { return }
+        hosts = loaded.value.hosts
     }
 
     public func host(id: HostID) -> HostProfile? {

@@ -83,33 +83,39 @@ public enum FailureAdvisor {
         let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
         let outcome = ProbeOutcome()
         return await withCheckedContinuation { continuation in
+            outcome.arm(continuation)
             connection.stateUpdateHandler = { state in
                 switch state {
-                case .ready: outcome.finish(true, continuation, connection)
-                case .failed, .cancelled: outcome.finish(false, continuation, connection)
+                case .ready: outcome.finish(true, connection)
+                case .failed, .cancelled: outcome.finish(false, connection)
                 default: break
                 }
             }
             connection.start(queue: .global(qos: .utility))
             DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(Int(timeout.components.seconds * 1_000))) {
-                outcome.finish(false, continuation, connection)
+                outcome.finish(false, connection)
             }
         }
     }
 }
 
-/// Ensures the probe's continuation resumes exactly once.
+/// Ensures the probe's continuation resumes exactly once and is released immediately.
 private final class ProbeOutcome: @unchecked Sendable {
     private let lock = NSLock()
-    private var done = false
+    private var continuation: CheckedContinuation<Bool, Never>?
 
-    func finish(_ value: Bool, _ continuation: CheckedContinuation<Bool, Never>, _ connection: NWConnection) {
-        let first = lock.withLock { () -> Bool in
-            defer { done = true }
-            return !done
+    func arm(_ continuation: CheckedContinuation<Bool, Never>) {
+        lock.withLock { self.continuation = continuation }
+    }
+
+    func finish(_ value: Bool, _ connection: NWConnection) {
+        let pending = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+            defer { continuation = nil }
+            return continuation
         }
-        guard first else { return }
+        guard let pending else { return }
+        connection.stateUpdateHandler = nil
         connection.cancel()
-        continuation.resume(returning: value)
+        pending.resume(returning: value)
     }
 }

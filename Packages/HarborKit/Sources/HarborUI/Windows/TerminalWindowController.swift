@@ -37,6 +37,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         window.collectionBehavior.insert(.fullScreenPrimary)
         super.init(window: window)
         model.hosts = services.hosts
+        model.control = services.control
         root = TerminalWindowRootView(model: model, actions: makeActions())
         window.contentView = root
         window.delegate = self
@@ -206,6 +207,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
             close: { [weak self] id in self?.session(id).map { self?.closeTab($0) } },
             newTab: { [weak self] in self?.coordinator?.openTab(in: self) },
             rename: { [weak self] id in self?.session(id).map { self?.rename($0) } },
+            commitRename: { [weak self] id, rawTitle in
+                guard let session = self?.session(id) else { return }
+                let trimmed = rawTitle.trimmingCharacters(in: .whitespaces)
+                session.customTitle = trimmed.isEmpty ? nil : trimmed
+            },
             duplicate: { [weak self] id in
                 guard let self, let session = self.session(id) else { return }
                 self.coordinator?.duplicate(session, in: self)
@@ -216,12 +222,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
                 guard let self else { return }
                 self.model.sessions.filter { $0.id != id }.forEach { self.closeTab($0) }
             },
+            revokeAssistantApproval: { [weak self] id in
+                self?.services.control.revokeApproval(for: id)
+            },
             move: { [weak self] id, target in
                 guard let self else { return }
                 self.coordinator?.moveSession(id, to: self, before: target)
             },
             installIntegration: { [weak self] id in self?.session(id).map { self?.installIntegration(for: $0) } },
             editHost: { [weak self] id in self?.session(id).map { self?.presentHostEditor(for: $0) } },
+            togglePortForwards: { [weak self] id in
+                guard let self, let session = self.session(id) else { return }
+                self.select(session)
+                self.selectedContainer?.togglePortForwardBar()
+            },
             connect: { [weak self] host in self?.services.actions?.connect(to: host) },
             quickConnect: { [weak self] in self?.services.actions?.showQuickConnect() },
             manageHosts: { [weak self] in self?.services.actions?.openSettings(section: .hosts) })
@@ -237,12 +251,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
     private func presentHostEditor(for session: TerminalSession) {
         guard let original = session.kind.host, let window else { return }
         let saved = services.hosts.host(id: original.id)
-        let library = services.hosts
+        let services = self.services
         let dismiss = { [weak window] in
             if let sheet = window?.attachedSheet { window?.endSheet(sheet) }
         }
         let editor = HostEditorView(host: saved ?? original, isNew: saved == nil, services: services) { host in
-            library.upsert(host)
+            services.saveAndSyncHost(host)
             dismiss()
         } cancel: {
             dismiss()
@@ -375,8 +389,43 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
     @objc func smallerFont(_ sender: Any?) { selectedContainer?.changeFontSize(by: -1) }
     @objc func defaultFontSize(_ sender: Any?) { selectedContainer?.changeFontSize(by: 0) }
     @objc func toggleFileBrowser(_ sender: Any?) { selectedContainer?.toggleFlyout() }
+    @objc func toggleCommandAssist(_ sender: Any?) { selectedContainer?.toggleAssistBar() }
+    @objc func togglePortForwards(_ sender: Any?) { selectedContainer?.togglePortForwardBar() }
+    @objc func showFindBar(_ sender: Any?) { selectedContainer?.toggleFindBar() }
+    @objc func findNext(_ sender: Any?) { selectedContainer?.findModel.findNext() }
+    @objc func findPrevious(_ sender: Any?) { selectedContainer?.findModel.findPrevious() }
+    @objc func useSelectionForFind(_ sender: Any?) { selectedContainer?.findModel.useSelection() }
     @objc func reconnectSession(_ sender: Any?) { selectedSession?.restart() }
+    @objc func reconnectAllSessions(_ sender: Any?) { coordinator?.reconnectAllDisconnected() }
     @objc func renameTab(_ sender: Any?) { selectedSession.map(rename) }
+
+    @objc func duplicateTab(_ sender: Any?) {
+        guard let session = selectedSession else { return }
+        coordinator?.duplicate(session, in: self)
+    }
+
+    @objc override func performTextFinderAction(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem,
+              let action = NSTextFinder.Action(rawValue: item.tag) else {
+            showFindBar(sender)
+            return
+        }
+        switch action {
+        case .showFindInterface:
+            showFindBar(sender)
+        case .nextMatch:
+            findNext(sender)
+        case .previousMatch:
+            findPrevious(sender)
+        case .setSearchString:
+            useSelectionForFind(sender)
+        case .hideFindInterface:
+            selectedContainer?.findModel.isVisible = false
+            selectedContainer?.focusTerminal()
+        default:
+            break
+        }
+    }
 
     @objc func jumpToPreviousPrompt(_ sender: Any?) {
         guard let terminal = selectedContainer?.terminal, let row = terminal.previousSemanticPromptRow() else { return }
@@ -408,9 +457,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
         case #selector(reconnectSession(_:)):
             menuItem.title = selectedSession?.kind.host != nil ? "Reconnect" : "Restart Shell"
             return selectedSession.map { !$0.state.isRunning } ?? false
+        case #selector(reconnectAllSessions(_:)):
+            return services.sessions.sessions.contains { $0.kind.host != nil && !$0.state.isRunning }
         case #selector(toggleFileBrowser(_:)):
             menuItem.title = selectedContainer?.isFlyoutVisible == true ? "Hide Files" : "Show Files"
             return selectedContainer != nil
+        case #selector(toggleCommandAssist(_:)), #selector(togglePortForwards(_:)):
+            return selectedContainer != nil
+        case #selector(duplicateTab(_:)):
+            return selectedSession != nil
         case #selector(selectTabByNumber(_:)):
             return menuItem.tag == 9 ? !model.sessions.isEmpty : menuItem.tag <= model.sessions.count
         case #selector(showNextTab(_:)), #selector(showPreviousTab(_:)), #selector(detachTab(_:)):
@@ -423,11 +478,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, NSMe
     }
 
     private func contextMenuItems() -> [NSMenuItem] {
+        let assist = NSMenuItem(title: "AI Command Assist…", action: #selector(toggleCommandAssist(_:)), keyEquivalent: "")
+        assist.target = self
+        let forwards = NSMenuItem(title: "Quick Redirect / Proxy…", action: #selector(togglePortForwards(_:)), keyEquivalent: "")
+        forwards.target = self
         let files = NSMenuItem(title: selectedContainer?.isFlyoutVisible == true ? "Hide Files" : "Show Files",
                                action: #selector(toggleFileBrowser(_:)), keyEquivalent: "")
         files.target = self
         let rename = NSMenuItem(title: "Rename Tab…", action: #selector(renameTab(_:)), keyEquivalent: "")
         rename.target = self
-        return [.separator(), files, rename]
+        return [.separator(), assist, forwards, files, rename]
     }
 }
+

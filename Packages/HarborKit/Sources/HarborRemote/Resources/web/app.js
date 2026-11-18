@@ -158,9 +158,11 @@
     $("tab-subtitle").textContent = session
       ? [session.host, session.workingDirectory, `${session.columns}×${session.rows}`].filter(Boolean).join(" · ")
       : "";
+    $("fit-pty").disabled = !session || !state.allowInput;
     $("focus-on-mac").disabled = !session;
     $("close-tab").disabled = !session;
     $("empty").hidden = Boolean(session);
+    $("touch-keys").hidden = !session || !state.allowInput;
   }
 
   async function refresh() {
@@ -187,9 +189,15 @@
     node.textContent = online ? "Connected" : "Reconnecting…";
   }
 
+  let refreshTimer = null;
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refresh, 120);
+  }
+
   function startPolling() {
     stopPolling();
-    state.pollTimer = setInterval(refresh, 3000);
+    state.pollTimer = setInterval(refresh, 10000);
   }
 
   function stopPolling() {
@@ -199,9 +207,13 @@
 
   // ---- Terminal stream ---------------------------------------------------
 
+  let autoResizeEnabled = false;
+  let ctrlSticky = false;
+
   function select(id) {
     if (state.current === id && state.socket) return;
     state.current = id;
+    autoResizeEnabled = false;
     $("sidebar").classList.remove("open");
     renderTabs();
     connect();
@@ -227,7 +239,7 @@
     socket.onopen = () => {
       state.reconnectDelay = 500;
       hideBanner();
-      sendResize();
+      fit.fit();
       term.focus();
     };
     socket.onmessage = (event) => {
@@ -237,7 +249,11 @@
       }
       try {
         const message = JSON.parse(event.data);
-        if (message.type === "closed" || message.type === "error") showBanner(message.message);
+        if (message.type === "closed" || message.type === "error") {
+          showBanner(message.message);
+        } else if (message.type === "sessionsChanged") {
+          scheduleRefresh();
+        }
       } catch (_) { /* ignore malformed events */ }
     };
     socket.onclose = () => {
@@ -249,14 +265,27 @@
     };
   }
 
-  term.onData((data) => {
+  function sendInput(raw) {
     if (!state.allowInput || !state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+    let data = raw;
+    if (ctrlSticky && data.length === 1) {
+      const code = data.toUpperCase().charCodeAt(0);
+      if (code >= 64 && code <= 95) {
+        data = String.fromCharCode(code - 64);
+      }
+      setCtrlSticky(false);
+    }
     state.socket.send(JSON.stringify({ type: "input", data }));
+  }
+
+  term.onData((data) => {
+    sendInput(data);
   });
 
-  function sendResize() {
+  function sendResize(forceRemote = false) {
     fit.fit();
-    if (state.socket && state.socket.readyState === WebSocket.OPEN && state.allowInput) {
+    if (forceRemote) autoResizeEnabled = true;
+    if (autoResizeEnabled && state.socket && state.socket.readyState === WebSocket.OPEN && state.allowInput) {
       state.socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
     }
   }
@@ -264,7 +293,29 @@
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(sendResize, 120);
+    resizeTimer = setTimeout(() => sendResize(false), 120);
+  });
+
+  function setCtrlSticky(active) {
+    ctrlSticky = active;
+    $("ctrl-toggle").setAttribute("aria-pressed", String(active));
+  }
+
+  $("ctrl-toggle").addEventListener("click", () => {
+    setCtrlSticky(!ctrlSticky);
+    term.focus();
+  });
+
+  $("touch-keys").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-seq]");
+    if (!button) return;
+    sendInput(button.getAttribute("data-seq"));
+    term.focus();
+  });
+
+  $("fit-pty").addEventListener("click", () => {
+    sendResize(true);
+    term.focus();
   });
 
   function showBanner(text) {

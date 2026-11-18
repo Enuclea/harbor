@@ -2,11 +2,13 @@ import AppKit
 import HarborControl
 import HarborCore
 import HarborLogging
+import HarborSessions
 
 /// Asks the person at the Mac before an assistant types into a tab.
 ///
-/// The prompt is a sheet on the target tab (brought to the front), shows exactly what
-/// will be typed, and defaults to Deny. Unanswered prompts are denied after two minutes.
+/// Session-targeted requests render inline on the target tab's overlay without stealing
+/// window focus. App-level requests without a session fall back to a sheet. Unanswered
+/// prompts are denied after two minutes.
 @MainActor
 final class ApprovalPresenter: ApprovalRequesting {
     private let windows: WindowCoordinator
@@ -17,9 +19,45 @@ final class ApprovalPresenter: ApprovalRequesting {
     }
 
     func requestApproval(_ request: ApprovalRequest) async -> ApprovalDecision {
+        if let session = windows.session(for: request.sessionID) {
+            return await requestInlineApproval(request, in: session)
+        }
+        return await requestModalApproval(request)
+    }
+
+    private func requestInlineApproval(_ request: ApprovalRequest, in session: TerminalSession) async -> ApprovalDecision {
+        if !NSApp.isActive {
+            NSApp.requestUserAttention(.informationalRequest)
+        }
+        if windows.focusedSessionID() != session.id {
+            session.ringBell()
+        }
+
+        let decision: ApprovalDecision = await withCheckedContinuation { continuation in
+            let resumer = DecisionResumer(continuation)
+            let prompt = InlineApprovalPrompt(request: request) { choice in
+                resumer.resume(choice)
+            }
+            session.pendingApproval = prompt
+
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(120))
+                if resumer.resume(.deny), session.pendingApproval?.id == prompt.id {
+                    session.pendingApproval = nil
+                }
+            }
+        }
+
+        session.pendingApproval = nil
+        log.notice("inline approval for \(request.client.name): \(decision)")
+        return decision
+    }
+
+    private func requestModalApproval(_ request: ApprovalRequest) async -> ApprovalDecision {
         let window = window(for: request.sessionID)
-        NSApp.activate()
-        NSApp.requestUserAttention(.criticalRequest)
+        if !NSApp.isActive {
+            NSApp.requestUserAttention(.criticalRequest)
+        }
         window?.makeKeyAndOrderFront(nil)
 
         let alert = NSAlert()
@@ -92,3 +130,21 @@ private final class OnceResumer {
         return true
     }
 }
+
+@MainActor
+private final class DecisionResumer {
+    private var continuation: CheckedContinuation<ApprovalDecision, Never>?
+
+    init(_ continuation: CheckedContinuation<ApprovalDecision, Never>) {
+        self.continuation = continuation
+    }
+
+    @discardableResult
+    func resume(_ decision: ApprovalDecision) -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        continuation.resume(returning: decision)
+        return true
+    }
+}
+

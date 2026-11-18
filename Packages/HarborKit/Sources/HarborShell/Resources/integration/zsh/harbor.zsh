@@ -81,4 +81,33 @@ typeset -ga precmd_functions preexec_functions
 precmd_functions=(_harbor_precmd ${precmd_functions:#(_harbor_precmd|_harbor_name_prompt|_harbor_mark_prompt_end)} _harbor_name_prompt _harbor_mark_prompt_end)
 preexec_functions=(${preexec_functions:#_harbor_preexec} _harbor_preexec)
 
+_harbor_emit_sysinfo() {
+  emulate -L zsh
+  local os kern arch distro="" pkg="" init="" tools="" p t is_root="false"
+  os=$(uname -s 2>/dev/null)
+  kern=$(uname -r 2>/dev/null)
+  arch=$(uname -m 2>/dev/null)
+  (( EUID == 0 )) && is_root="true"
+  if [[ -r /etc/os-release ]]; then
+    distro=$(sh -c '. /etc/os-release 2>/dev/null && printf "%s" "${PRETTY_NAME:-$NAME $VERSION_ID}"')
+  elif (( $+commands[sw_vers] )); then
+    distro="macOS $(sw_vers -productVersion 2>/dev/null)"
+  fi
+  for p in apt dnf yum apk pacman zypper brew; do
+    (( $+commands[$p] )) && { pkg="$p"; break; }
+  done
+  if (( $+commands[systemctl] )); then init="systemd"
+  elif [[ "$os" == "Darwin" ]]; then init="launchd"
+  elif (( $+commands[rc-service] )); then init="openrc"
+  fi
+  for t in git docker podman systemctl journalctl tmux jq rg grep curl python3; do
+    (( $+commands[$t] )) && tools="${tools:+$tools,}\"$t\""
+  done
+  local json="{\"os\":\"${os//\"/}\",\"kernel\":\"${kern//\"/}\",\"arch\":\"${arch//\"/}\",\"distro\":\"${distro//\"/}\",\"hostname\":\"${HOST//\"/}\",\"user\":\"${USER//\"/}\",\"isRoot\":${is_root},\"shell\":\"zsh\",\"packageManager\":\"${pkg}\",\"initSystem\":\"${init}\",\"tools\":[${tools}]}"
+  _harbor_urlencode "$json"
+  builtin print -rn -- $'\e]1337;HarborSysInfo='"${REPLY}"$'\a'
+}
+
 builtin print -rn -- $'\e]1337;HarborShellIntegration=zsh;version=3\a'
+_harbor_emit_sysinfo
+unfunction _harbor_emit_sysinfo 2>/dev/null || true

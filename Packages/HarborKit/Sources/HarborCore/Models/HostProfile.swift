@@ -36,6 +36,8 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
     /// Show `name` instead of the server's hostname: on the tab, and (with shell
     /// integration on the host) wherever the prompt shows the hostname.
     public var showsNameInPrompt: Bool
+    /// Saved SSH port forwards (`-L` / `-R`) and dynamic SOCKS5 proxies (`-D`) for this host.
+    public var portForwards: [PortForwardRule]
 
     public init(
         id: HostID = HostID(),
@@ -57,7 +59,8 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         notes: String? = nil,
         remoteIntegration: Bool = false,
         remoteIntegrationMarker: Bool = false,
-        showsNameInPrompt: Bool = false
+        showsNameInPrompt: Bool = false,
+        portForwards: [PortForwardRule] = []
     ) {
         self.id = id
         self.name = name
@@ -79,12 +82,13 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
         self.remoteIntegration = remoteIntegration
         self.remoteIntegrationMarker = remoteIntegrationMarker
         self.showsNameInPrompt = showsNameInPrompt
+        self.portForwards = portForwards
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, hostname, user, port, identityFile, jumpHost, usesSSHConfigAlias, forwardAgent
         case startupCommand, remoteDirectory, tags, color, themeID, isFavorite, lastConnected, notes
-        case remoteIntegration, remoteIntegrationMarker, showsNameInPrompt
+        case remoteIntegration, remoteIntegrationMarker, showsNameInPrompt, portForwards
     }
 
     /// Lenient decoding: only `hostname` is required, so files written by older or newer
@@ -112,7 +116,8 @@ public struct HostProfile: Codable, Identifiable, Hashable, Sendable {
             notes: try c.decodeIfPresent(String.self, forKey: .notes),
             remoteIntegration: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegration) ?? false,
             remoteIntegrationMarker: try c.decodeIfPresent(Bool.self, forKey: .remoteIntegrationMarker) ?? false,
-            showsNameInPrompt: try c.decodeIfPresent(Bool.self, forKey: .showsNameInPrompt) ?? false
+            showsNameInPrompt: try c.decodeIfPresent(Bool.self, forKey: .showsNameInPrompt) ?? false,
+            portForwards: (try? c.decodeIfPresent([PortForwardRule].self, forKey: .portForwards)) ?? []
         )
     }
 

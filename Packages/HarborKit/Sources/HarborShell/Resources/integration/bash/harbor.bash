@@ -70,4 +70,32 @@ else
   PROMPT_COMMAND="_harbor_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _harbor_name_prompt"
 fi
 
+_harbor_emit_sysinfo() {
+  local os kern arch distro="" pkg="" init="" tools="" p t is_root="false"
+  os=$(uname -s 2>/dev/null)
+  kern=$(uname -r 2>/dev/null)
+  arch=$(uname -m 2>/dev/null)
+  [[ "${EUID:-$(id -u 2>/dev/null)}" == "0" ]] && is_root="true"
+  if [[ -r /etc/os-release ]]; then
+    distro=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-$NAME $VERSION_ID}")
+  elif command -v sw_vers >/dev/null 2>&1; then
+    distro="macOS $(sw_vers -productVersion 2>/dev/null)"
+  fi
+  for p in apt dnf yum apk pacman zypper brew; do
+    command -v "$p" >/dev/null 2>&1 && { pkg="$p"; break; }
+  done
+  if command -v systemctl >/dev/null 2>&1; then init="systemd"
+  elif [[ "$os" == "Darwin" ]]; then init="launchd"
+  elif command -v rc-service >/dev/null 2>&1; then init="openrc"
+  fi
+  for t in git docker podman systemctl journalctl tmux jq rg grep curl python3; do
+    command -v "$t" >/dev/null 2>&1 && tools="${tools:+$tools,}\"$t\""
+  done
+  local json="{\"os\":\"${os//\"/}\",\"kernel\":\"${kern//\"/}\",\"arch\":\"${arch//\"/}\",\"distro\":\"${distro//\"/}\",\"hostname\":\"${HOSTNAME//\"/}\",\"user\":\"${USER//\"/}\",\"isRoot\":${is_root},\"shell\":\"bash\",\"packageManager\":\"${pkg}\",\"initSystem\":\"${init}\",\"tools\":[${tools}]}"
+  _harbor_urlencode "$json"
+  printf '\e]1337;HarborSysInfo=%s\a' "$REPLY"
+}
+
 printf '\e]1337;HarborShellIntegration=bash;version=3\a'
+_harbor_emit_sysinfo
+unset -f _harbor_emit_sysinfo
