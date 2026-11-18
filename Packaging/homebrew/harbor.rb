@@ -2,7 +2,7 @@
 # then users install with:  brew install --cask Enuclea/tap/harbor
 cask "harbor" do
   version "0.2.0"
-  sha256 "b9eb3f1428c5a37b7a1158cb6d51237bd5d6484cec8eef2d959d549391a47a87"
+  sha256 "86bbdda877d68be192013dd6a5652765fcad32cd7fb197ab75dda564415f740e"
 
   url "https://github.com/Enuclea/harbor/releases/download/v#{version}/Harbor-#{version}.dmg"
   name "Harbor"
